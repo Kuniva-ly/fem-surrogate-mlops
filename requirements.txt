@@ -1,0 +1,3 @@
+# Main requirements — installs the full ML pipeline.
+# For specific sub-stacks see requirements/api.txt, requirements/dashboard.txt, requirements/dev.txt
+-r requirements/base.txt

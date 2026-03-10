@@ -1,0 +1,36 @@
+# FEM Surrogate ML Pipeline — Runtime Configuration
+# All runtime parameters are controlled here.
+# Override individual values via CLI flags when needed.
+
+data:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  features_dir: data/features/advanced
+
+features:
+  seed: 42
+  train_ratio: 0.70
+  val_ratio: 0.15
+  split_strategy: hash        # hash (deterministic) | random
+  keep_ambiguous: false       # if true, orphaned rows become without_hole
+
+training:
+  random_state: 42
+  cv_folds: 5
+  n_trials: 60                # Optuna trials per target; 0 = skip Optuna
+
+artifacts:
+  registry_dir: artifacts/models
+  model_name: lgbm_surrogate
+
+evaluation:
+  metrics:
+    - r2_log
+    - rmse_log
+    - mae_log
+    - r2_orig
+    - rmse_orig
+    - mape
+  splits:
+    - val
+    - test

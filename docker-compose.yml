@@ -1,127 +1,204 @@
-﻿services:
-  minio:
-    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
-    command: server /data --console-address ":9001"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - minio_data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
+# FEM Surrogate ML Platform — Full Stack
+#
+# Services
+# --------
+#   minio       S3-compatible object store (raw data + MLflow artifacts)
+#   minio-setup One-shot bucket initialisation (exits after setup)
+#   postgres    PostgreSQL — MLflow tracking backend
+#   mlflow      MLflow tracking server (UI on :5000)
+#   api         FastAPI model-serving layer (on :8000)
+#   dashboard   Streamlit user-facing UI (on :8501)
+#   prometheus  Metrics scraping (on :9090)
+#   grafana     Observability dashboards (on :3000)
+#
+# Usage
+# -----
+#   cp .env.example .env          # fill in real secrets
+#   docker compose up -d          # start everything
+#   docker compose logs -f api    # tail API logs
+#   docker compose down -v        # tear down (removes volumes!)
 
-  minio-init:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+version: "3.9"
+
+networks:
+  fem-net:
+    driver: bridge
+
+volumes:
+  minio-data:
+  postgres-data:
+  mlflow-data:
+  prometheus-data:
+  grafana-data:
+
+# ── Shared default restart policy ─────────────────────────────────────────────
+x-restart: &default-restart
+  restart: unless-stopped
+
+# ── MinIO ─────────────────────────────────────────────────────────────────────
+services:
+  minio:
+    image: minio/minio:RELEASE.2024-04-06T05-26-02Z
+    <<: *default-restart
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER:     ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_REGION:        ${MINIO_REGION:-us-east-1}
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    networks: [fem-net]
+
+  # One-shot: create all required buckets then exit
+  minio-setup:
+    image: minio/mc:RELEASE.2024-04-01T13-57-10Z
     depends_on:
       minio:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY:-minioadmin} ${MINIO_SECRET_KEY:-minioadmin};
-      mc mb local/${MINIO_BUCKET_RAW:-raw-simulations} || true;
-      mc mb local/${MINIO_BUCKET_PROCESSED:-processed-simulations} || true;
-      mc mb local/${MINIO_BUCKET_FEATURES:-features} || true;
-      mc mb local/${MLFLOW_BUCKET_ARTIFACTS:-ml-artifacts} || true;
-      exit 0;
+        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin};
+        mc mb --ignore-existing local/${MINIO_BUCKET_RAW:-raw-simulations};
+        mc mb --ignore-existing local/${MINIO_BUCKET_PROCESSED:-processed-simulations};
+        mc mb --ignore-existing local/${MINIO_BUCKET_FEATURES:-features};
+        mc mb --ignore-existing local/${MINIO_BUCKET_ARTIFACTS:-ml-artifacts};
+        echo 'Buckets ready.';
       "
+    networks: [fem-net]
 
-  db:
+# ── PostgreSQL (MLflow backend store) ─────────────────────────────────────────
+  postgres:
     image: postgres:16-alpine
+    <<: *default-restart
     environment:
-      POSTGRES_DB: surrogate
-      POSTGRES_USER: surrogate
-      POSTGRES_PASSWORD: surrogate
-    ports:
-      - "5432:5432"
+      POSTGRES_DB:       ${POSTGRES_DB:-mlflow}
+      POSTGRES_USER:     ${POSTGRES_USER:-mlflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mlflow_secret}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U surrogate -d surrogate"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mlflow} -d ${POSTGRES_DB:-mlflow}"]
+      interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 15s
+    networks: [fem-net]
 
-  fenics:
-    image: dolfinx/dolfinx@sha256:25a4952542107766402a1de448ab1b387df70243e10f9d3f717d8c353f2acae4
-    volumes:
-      - ./:/workspace
-    working_dir: /workspace
-    stdin_open: true
-    tty: true
-    depends_on:
-      db:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-
-  spark-master:
-    image: apache/spark:3.5.1
-    command: >
-      /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
-      --host spark-master
-      --port 7077
-      --webui-port 8080
-    environment:
-      SPARK_LOCAL_HOSTNAME: spark-master
-      SPARK_DRIVER_HOST: spark-master
-    ports:
-      - "7077:7077"
-      - "8080:8080"
-    volumes:
-      - ./:/workspace
-    depends_on:
-      minio:
-        condition: service_healthy
-
-  spark-worker:
-    image: apache/spark:3.5.1
-    command: >
-      /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker
-      --webui-port 8081
-      spark://spark-master:7077
-    environment:
-      SPARK_WORKER_MEMORY: 2G
-      SPARK_WORKER_CORES: 2
-    ports:
-      - "8081:8081"
-    volumes:
-      - ./:/workspace
-    depends_on:
-      spark-master:
-        condition: service_started
-
+# ── MLflow tracking server ─────────────────────────────────────────────────────
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.13.2
+    image: ghcr.io/mlflow/mlflow:v2.12.2
+    <<: *default-restart
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
     command: >
       mlflow server
-      --host 0.0.0.0
-      --port 5000
-      --backend-store-uri sqlite:///mlflow/mlflow.db
-      --default-artifact-root s3://${MLFLOW_BUCKET_ARTIFACTS:-ml-artifacts}
+        --backend-store-uri postgresql://${POSTGRES_USER:-mlflow}:${POSTGRES_PASSWORD:-mlflow_secret}@postgres:5432/${POSTGRES_DB:-mlflow}
+        --default-artifact-root s3://${MINIO_BUCKET_ARTIFACTS:-ml-artifacts}/
+        --host 0.0.0.0
+        --port 5000
     environment:
-      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
-      AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
-      AWS_DEFAULT_REGION: ${MINIO_REGION:-us-east-1}
+      # S3/MinIO credentials for artifact storage
+      MLFLOW_S3_ENDPOINT_URL:   http://minio:9000
+      AWS_ACCESS_KEY_ID:        ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY:    ${MINIO_ROOT_PASSWORD:-minioadmin}
+      AWS_DEFAULT_REGION:       ${MINIO_REGION:-us-east-1}
     ports:
       - "5000:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
+    networks: [fem-net]
+
+# ── FastAPI model-serving API ─────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    <<: *default-restart
+    environment:
+      MODEL_DIR:        ${MODEL_DIR:-/app/artifacts/models/lgbm_surrogate/latest}
+      REGISTRY_DIR:     /app/artifacts/models
+      MODEL_NAME:       ${MODEL_NAME:-lgbm_surrogate}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      API_LOG_LEVEL:    ${API_LOG_LEVEL:-INFO}
     volumes:
-      - mlflow_data:/mlflow
+      # Mount the host artifacts directory so the API can read trained models
+      - ./artifacts:/app/artifacts:ro
+      - ./configs:/app/configs:ro
+    ports:
+      - "8000:8000"
     depends_on:
-      minio:
+      mlflow:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [fem-net]
 
-volumes:
-  postgres_data:
-  minio_data:
-  mlflow_data:
+# ── Streamlit dashboard ───────────────────────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    <<: *default-restart
+    environment:
+      API_URL: http://api:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [fem-net]
 
+# ── Prometheus ────────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    <<: *default-restart
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    networks: [fem-net]
+
+# ── Grafana ────────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    <<: *default-restart
+    environment:
+      GF_SECURITY_ADMIN_USER:     ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SERVER_ROOT_URL:         http://localhost:3000
+      GF_AUTH_ANONYMOUS_ENABLED:  "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks: [fem-net]

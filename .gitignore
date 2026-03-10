@@ -1,24 +1,59 @@
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
 .venv/
 venv/
+env/
 
-# Data outputs
+# ── Data — generated, not version-controlled ─────────────────────────────────
+# Raw and processed simulation data (large, regenerated from FEM sims)
 /data/raw/
 /data/processed/
 /data/features/
+/data/models/
 *.parquet
 
-# Env
-.env
+# ── ML artifacts — managed by registry, not by git ───────────────────────────
+*.joblib
+*.pkl
+/artifacts/
 
-# IDE
+# ── Secrets — NEVER commit ───────────────────────────────────────────────────
+.env
+*.key
+*.pem
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# OS
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# ── Notebooks — checkpoints ───────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── Test coverage ─────────────────────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ── Docker build cache ────────────────────────────────────────────────────────
+.dockerignore
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/

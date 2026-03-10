@@ -1,92 +1,158 @@
-# Commandes pour generer plus de donnees
+# Générer un grand dataset
 
 Depuis la racine du projet `c:\Users\Administrateur\Desktop\Projet_fil_rouge`.
 
-## 1) Demarrer l'infra
+---
+
+## 1. Démarrer l'infra Docker
+
+Requis uniquement pour le backend FEniCS (calcul EF réel).
+Sans Docker, utiliser `--backend proxy` pour toutes les commandes.
+
 ```powershell
 docker compose up -d
 ```
 
-## 2) Generation with_hole (calcul reel FEniCS)
-Exemple 10 000 simulations:
+---
+
+## 2. Générer — with_hole
+
 ```powershell
-docker compose exec fenics python fenics_projet/traction_plate_with_hole.py --n 10000 --seed 42 --out data/raw/sim_v1 --backend fenics --chunk-size 2000 --sampling-mode continuous --mesh-nx 120 --mesh-ny 24
+# FEniCS réel (Docker requis)
+docker compose exec fenics python -m src.simulations.traction_plate_with_hole `
+    --n 10000 --seed 42 --out data/raw/sim_v1 `
+    --backend fenics --chunk-size 2000 --sampling-mode continuous `
+    --mesh-nx 120 --mesh-ny 24
+
+# Proxy analytique (sans Docker)
+.venv\Scripts\python -m src.simulations.traction_plate_with_hole `
+    --n 10000 --seed 42 --out data/raw/sim_v1 `
+    --backend proxy --chunk-size 2000 --sampling-mode continuous
 ```
 
-## 3) Generation without_hole (proxy rapide)
-Exemple 10 000 simulations:
+---
+
+## 3. Générer — without_hole
+
 ```powershell
-python fenics_projet/traction_plate_without_hole.py --n 10000 --seed 42 --out data/raw/sim_v1_without_hole --backend proxy --chunk-size 2000 --sampling-mode continuous --mesh-nx 120 --mesh-ny 24
+.venv\Scripts\python -m src.simulations.traction_plate_without_hole `
+    --n 10000 --seed 42 --out data/raw/sim_v1_without_hole `
+    --backend proxy --chunk-size 2000 --sampling-mode continuous
 ```
 
-## 4) Generation with_hole_moving (calcul reel FEniCS)
-Exemple 10 000 simulations:
+---
+
+## 4. Générer — with_hole_moving
+
 ```powershell
-docker compose exec fenics python fenics_projet/traction_plate_moving_hole.py --n 10000 --seed 42 --out data/raw/sim_v2_moving_hole --backend fenics --chunk-size 2000 --sampling-mode continuous --data-version sim_v2_moving_hole --mesh-nx 120 --mesh-ny 24
+# FEniCS réel (Docker requis)
+docker compose exec fenics python -m src.simulations.traction_plate_moving_hole `
+    --n 10000 --seed 42 --out data/raw/sim_v2_moving_hole `
+    --backend fenics --chunk-size 2000 --sampling-mode continuous `
+    --data-version sim_v2_moving_hole --mesh-nx 120 --mesh-ny 24
+
+# Proxy analytique (sans Docker)
+.venv\Scripts\python -m src.simulations.traction_plate_moving_hole `
+    --n 10000 --seed 42 --out data/raw/sim_v2_moving_hole `
+    --backend proxy --chunk-size 2000 --sampling-mode continuous `
+    --data-version sim_v2_moving_hole
 ```
 
-## 5) Validation
-Remplace la date si besoin.
+---
+
+## 5. Variantes plages étendues (wide)
+
+Pour couvrir un espace de paramètres plus large (extrapolation, robustesse) :
+
 ```powershell
-python -m src.processing.validate --input data/raw/sim_v1/date=2026-02-11
-python -m src.processing.validate --input data/raw/sim_v1_without_hole/date=2026-02-11
-python -m src.processing.validate --input data/raw/sim_v2_moving_hole/date=2026-02-11
+.venv\Scripts\python -m src.simulations.traction_plate_with_hole_wide `
+    --n 5000 --seed 42 --out data/raw/sim_v1_wide
+
+.venv\Scripts\python -m src.simulations.traction_plate_without_hole_wide `
+    --n 5000 --seed 42 --out data/raw/sim_v1_without_hole_wide
 ```
 
-## 6) Upload vers MinIO
-Remplace la date si besoin.
+---
+
+## 6. Validation des données brutes
+
 ```powershell
-python -m src.ingestion.upload_to_minio --local-path data/raw/sim_v1/date=2026-02-11 --bucket raw-simulations --prefix with_hole/sim_v1/date=2026-02-11
-python -m src.ingestion.upload_to_minio --local-path data/raw/sim_v1_without_hole/date=2026-02-11 --bucket raw-simulations --prefix without_hole/sim_v1_without_hole/date=2026-02-11
-python -m src.ingestion.upload_to_minio --local-path data/raw/sim_v2_moving_hole/date=2026-02-11 --bucket raw-simulations --prefix with_hole_moving/sim_v2_moving_hole/date=2026-02-11
+.venv\Scripts\python -m src.processing.validate --input data/raw/sim_v1
+.venv\Scripts\python -m src.processing.validate --input data/raw/sim_v1_without_hole
+.venv\Scripts\python -m src.processing.validate --input data/raw/sim_v2_moving_hole
+
+# Ou via Makefile (les trois en une commande)
+make validate-all
 ```
 
-## 7) Option batch (generer + valider + preparation + features + uploader)
-Batch existant (with_hole):
-```powershell
-python -m src.pipelines.daily_batch --n 10000 --seed 42 --base data/raw/sim_v1 --backend fenics --chunk-size 2000 --upload-minio
-```
-Ce batch:
-- genere et valide le lot `raw`
-- construit `data/processed/date=YYYY-MM-DD` (nettoyage + agregation + preparation train/val/test)
-- construit des artefacts `features` selectionnes pour les modeles dans `data/features/stress_model/v1/<geometry>/date=YYYY-MM-DD`
-- upload le raw vers `raw-simulations`
-- upload `processed` vers `processed-simulations/<geometry>/date=YYYY-MM-DD`
-- upload `features` vers `features/stress_model/v1/<geometry>/date=YYYY-MM-DD` (pseudo feature store)
+---
 
-Options utiles du batch:
+## 7. Feature engineering + splits ML
+
 ```powershell
-python -m src.pipelines.daily_batch --n 10000 --seed 42 --base data/raw/sim_v1 --upload-minio --feature-group stress_model --feature-version v1
+# Via CLI — lit configs/training.yaml (seed, ratios, stratégie)
+.venv\Scripts\python -m src.cli build-features --input data/raw
+
+# Paramètres explicites (surcharge le config)
+.venv\Scripts\python -m src.processing.build_features `
+    --input data/raw --out-dir data/processed `
+    --features-out-dir data/features/advanced `
+    --split-strategy hash --seed 42
 ```
 
-## 8) Convention recommandee: pseudo feature store (bucket `features`)
-Ne pas confondre:
-- `processed`: donnees preparees (pipeline data engineering)
-- `features`: variables retenues pour un modele (decision ML/science)
+---
 
-Exemple orient� modele/version/date:
-```text
-features/
+## 8. Entraînement
+
+```powershell
+# Complet avec Optuna (60 essais par défaut — lit configs/training.yaml)
+.venv\Scripts\python -m src.cli train
+
+# Sans Optuna (paramètres par défaut LightGBM, rapide)
+.venv\Scripts\python -m src.cli train --n-trials 0
+
+# Paramètres personnalisés
+.venv\Scripts\python -m src.cli train --n-trials 30 --cv-folds 3 --random-state 99
+```
+
+---
+
+## 9. Upload vers MinIO (non implémenté)
+
+> L'upload MinIO n'est pas encore implémenté.
+> Pour l'ajouter, créer `src/ingestion/upload_to_minio.py` avec l'interface :
+>
+> ```powershell
+> .venv\Scripts\python -m src.ingestion.upload_to_minio `
+>     --local-path data/raw/sim_v1/date=YYYY-MM-DD `
+>     --bucket raw-simulations `
+>     --prefix with_hole/sim_v1/date=YYYY-MM-DD
+> ```
+>
+> Dépendances : `pip install boto3`. Variables d'environnement : voir `.env.example`.
+
+---
+
+## 10. Convention feature store
+
+| Dossier | Contenu | Décision |
+|---|---|---|
+| `data/processed/` | splits train/val/test nettoyés | data engineering |
+| `data/features/` | features retenues pour un modèle précis | ML / science |
+
+Structure recommandée orientée modèle/version :
+
+```
+data/features/
   stress_model/
     v1/
-      date=2026-02-11/
+      with_hole/date=YYYY-MM-DD/features.parquet
+      without_hole/date=YYYY-MM-DD/features.parquet
     v2/
-      date=2026-02-11/
+      ...
 ```
 
-Exemple orient� domaines de features:
-```text
-features/
-  geometry_features/
-  physics_features/
-  derived_features/
-```
+**Principe clé :** `training = serving` — même feature, même transformation,
+pour éviter le training-serving skew.
 
-But:
-- garantir `training = serving` (meme feature, meme transformation)
-- eviter le training-serving skew
-
-Solutions "feature store" classiques en production:
-- Feast
-- Tecton
-- Hopsworks
+Solutions feature store en production : Feast · Tecton · Hopsworks.

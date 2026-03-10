@@ -1,92 +1,320 @@
-# A quoi sert chaque script
+# Vue d'ensemble des scripts
 
-Le projet gere trois variantes de geometrie:
-- `with_hole`
-- `without_hole`
-- `with_hole_moving`
+Le projet supporte trois variantes de géométrie :
+- `with_hole` — plaque rectangulaire avec trou centré
+- `without_hole` — plaque pleine
+- `with_hole_moving` — plaque avec trou à position variable
 
-## Simulation
-```bash
-docker compose exec fenics python -m pip install pandas pyarrow
+---
+
+## CLI principal
+
+### `src/cli.py`
+
+Point d'entrée unifié pour toute la production. Toutes les commandes lisent
+`configs/training.yaml` et acceptent des surcharges CLI.
+
+```powershell
+.venv\Scripts\python -m src.cli <commande> [--config path/config.yaml] [options]
 ```
 
-- `fenics_projet/traction_plate_with_hole.py`
-  Genere les donnees de simulation plaque avec trou (FEniCS reel ou proxy), puis ecrit des fichiers parquet par chunks.
-- `fenics_projet/traction_plate_without_hole.py`
-  Genere les donnees de simulation plaque sans trou (FEniCS ou proxy), avec le meme format de sortie parquet.
-- `fenics_projet/traction_plate_moving_hole.py`
-  Genere les donnees de simulation plaque avec trou mobile (centre du trou variable), en FEniCS reel ou proxy, avec sorties parquet par chunks.
+| Commande | Description |
+|---|---|
+| `build-features` | Feature engineering + splits train/val/test |
+| `train` | Entraînement LightGBM + Optuna + enregistrement registre |
+| `evaluate` | Évaluation sur val/test (dernière version du registre) |
+| `predict` | Inférence cas unique (JSON inline ou fichier) |
+| `verify-artifacts` | Vérification SHA-256 des artefacts enregistrés |
 
-## Validation qualite
-- `src/processing/validate.py`
-  Verifie la qualite des datasets (colonnes requises, nulls, doublons, plages de valeurs) avant traitement Spark/ML.
+---
+
+## Configuration
+
+### `src/config.py`
+
+Charge et valide `configs/training.yaml` avec messages d'erreur clairs.
+Retourne un `PipelineConfig` typé (dataclasses).
+
+```python
+from src.config import load_config
+cfg = load_config()              # configs/training.yaml par défaut
+cfg = load_config("mon.yaml")    # chemin explicite
+# ou : CONFIG_PATH=mon.yaml python -m src.cli train
+```
+
+Sections validées : `data`, `features`, `training`, `artifacts`, `evaluation`.
+
+---
+
+## Simulation FEM
+
+### `src/simulations/traction_plate_with_hole.py`
+
+Génère des simulations de plaque rectangulaire avec trou centré.
+
+```powershell
+# FEniCS réel (Docker requis)
+docker compose exec fenics python -m src.simulations.traction_plate_with_hole `
+    --n 5000 --seed 42 --out data/raw/sim_v1 --backend fenics
+
+# Proxy analytique rapide (sans Docker)
+.venv\Scripts\python -m src.simulations.traction_plate_with_hole `
+    --n 1000 --seed 42 --out data/raw/sim_v1 --backend proxy
+```
+
+Paramètres clés : `--n`, `--seed`, `--out`, `--backend` (fenics|proxy|auto),
+`--sampling-mode` (categorical|continuous), `--chunk-size`.
+
+### `src/simulations/traction_plate_without_hole.py`
+
+Idem pour plaques pleines (sans trou). Même API.
+
+### `src/simulations/traction_plate_moving_hole.py`
+
+Plaque avec trou à position variable (`hole_cx_ratio`, `hole_cy_ratio`).
+Inclut la validation que le trou reste dans les limites de la plaque.
+
+### `src/simulations/traction_plate_*_wide.py`
+
+Variantes à plages de paramètres élargies pour la couverture du domaine physique.
+
+---
+
+## Validation qualité
+
+### `src/processing/validate.py`
+
+Vérifie un dossier de parquets bruts avant traitement ML :
+- colonnes requises (16 champs)
+- pas de nulls
+- unicité `simulation_id`
+- plages numériques (poisson ∈ (0,0.5), mesh_nx ≥ 8, etc.)
+- cohérence géométrique (with_hole doit avoir `hole_radius_ratio`)
+
+```powershell
+.venv\Scripts\python -m src.processing.validate --input data/raw/sim_v1
+```
+
+---
 
 ## Feature engineering
-- `src/processing/build_features.py`
-  Construit un dataset ML pret a l'emploi depuis les parquet raw:
-  - features derivees (`area_m2`, `aspect_ratio`, `traction_over_E`, `mesh_density`, etc.)
-  - splits `train.parquet`, `val.parquet`, `test.parquet` (zone `processed`)
-  - fichier `features.parquet` + `feature_columns.txt` (zone `features`, option `--features-out-dir`)
 
-## Ingestion Data Lake (MinIO)
-- `src/ingestion/upload_to_minio.py`
-  Upload les fichiers parquet d'un dossier local vers MinIO/S3 (bucket + prefix).
-  Prefix recommandes:
-  - `with_hole/sim_v1/date=YYYY-MM-DD`
-  - `without_hole/sim_v1_without_hole/date=YYYY-MM-DD`
-  - `with_hole_moving/sim_v2_moving_hole/date=YYYY-MM-DD`
-  - `with_hole/date=YYYY-MM-DD` (processed)
-  - `stress_model/v1/with_hole/date=YYYY-MM-DD` (features pseudo feature store)
+### `src/processing/build_features.py`
 
-## Ingestion PostgreSQL
-- `src/ingestion/load_to_postgres.py`
-  Charge les parquet locaux dans PostgreSQL (`simulation_records`) avec upsert sur `simulation_id`.
-  Permet de forcer le routage via `--geometry-type with_hole|without_hole|with_hole_moving`.
+Construit 42 features physiques depuis les colonnes brutes.
 
-## Pipeline batch
-- `src/pipelines/daily_batch.py`
-  Orchestration locale en une commande: generation -> validation -> build processed/features -> upload MinIO (optionnel), pour le flux `with_hole`.
+**Features principales :**
+- Géométrie : `area_m2`, `aspect_ratio`, `radius_abs`, `d_over_W`
+- Concentration de contrainte (Peterson) : `Kt_theory`, `net_section_ratio`, `sigma_net`
+- Déformation élastique : `epsilon`, `delta_theory`, `biaxial_factor`
+- Ligaments (trou mobile) : `lig_left/right/top/bottom`, `lig_min`, `edge_ratio`
+- Excentricité : `eccentricity_x`, `eccentricity_y`, `eccentricity`
+- Log-espace : `logE`, `logS`, `log_epsilon`, `log_delta_th`, `log_sigma_net`, `log_Kt`, etc.
+- Indicateurs : `has_hole`, `has_moving_hole`
 
-## Initialisation Python package
-- `src/__init__.py`
-  Marque `src` comme package Python.
-- `src/processing/__init__.py`
-  Marque `src.processing` comme package Python.
-- `src/ingestion/__init__.py`
-  Marque `src.ingestion` comme package Python.
-- `src/pipelines/__init__.py`
-  Marque `src.pipelines` comme package Python.
+**Colonnes exclues des features modèle :**
+- `mesh_nx`, `mesh_ny` — constantes dans toutes les lignes (variance nulle)
+- `simulation_id`, `timestamp`, métadonnées solver — non prédictifs
 
-## Infra et base de donnees
-- `docker-compose.yml`
-  Definit les services locaux: MinIO, init MinIO, Postgres, FEniCS, Spark master/worker, MLflow.
-- `db/init/001_schema.sql`
-  Cree le schema SQL (tables simulations/ML + table dataset `simulation_records`) au demarrage de Postgres.
+**Split déterministe :**
+- Stratégie `hash` (défaut) : SHA-256(simulation_id|seed) → bucket [0,1)
+- Reproduit exactement le même découpage sur des relances identiques
+- Stratégie `random` disponible pour expérimentations
 
-## Automatisation locale
-- `Makefile`
-  Raccourcis de commandes (`up`, `generate`, `generate-without-hole`, `validate`, `batch`, etc.).
+```powershell
+# Via CLI (recommandé)
+.venv\Scripts\python -m src.cli build-features --input data/raw
 
-## Documentation
-- `README.md`
-  Guide de demarrage et commandes principales.
-- `docs/data_contract.md`
-  Contrat de donnees (schema et regles de validation).
-- `docs/generate_large_dataset.md`
-  Commandes pour generer un gros volume de donnees.
-- `docs/use_case_et_utilite.md`
-  Cas d'usage et utilite du projet.
-- `roadmap.md`
-  Plan d'execution du projet.
-- `projet_file_rouge.md`
-  Document de cadrage et vision globale du projet.
+# Via module direct (paramètres explicites)
+.venv\Scripts\python -m src.processing.build_features `
+    --input data/raw --out-dir data/processed `
+    --features-out-dir data/features/advanced `
+    --split-strategy hash --seed 42
+```
 
-## Commandes training MLflow
-```bash
-.\.venv\Scripts\pip.exe install boto3
-$env:MLFLOW_S3_ENDPOINT_URL="http://localhost:9000"
-$env:AWS_ACCESS_KEY_ID="minioadmin"
-$env:AWS_SECRET_ACCESS_KEY="minioadmin"
-$env:AWS_DEFAULT_REGION="us-east-1"
-.\.venv\Scripts\python.exe src\training\train_baseline.py --mlflow --mlflow-run-name rf-baseline
+---
+
+## Entraînement
+
+### `src/training/train_advanced.py` ← modèle principal
+
+LightGBM avec transformation log des cibles + tuning Optuna.
+
+**Points clés :**
+- Cibles transformées : `log10(max_displacement_m)` et `log10(max_von_mises_pa)`
+  (compresse 4–6 décades en distribution uniforme)
+- Un modèle séparé par cible (physics différente)
+- Recherche Optuna : 60 essais par cible, CV 5-fold sur train
+- Contraintes de monotonicité physiques (ex. traction_pa → +1, young_modulus_pa → -1)
+- Encodeur catégoriel `OrdinalEncoder` fitté **uniquement sur train** (pas de fuite val/test)
+- Seed global propagé à `random`, `numpy.random`, `PYTHONHASHSEED`
+
+**Artefacts produits :**
+- `lgbm_max_displacement_m.joblib` — modèle + feature_cols + encoder
+- `lgbm_max_von_mises_pa.joblib` — idem
+- `advanced_metrics.csv` — R²(log), RMSE(log), MAE(log), R²(orig), RMSE(orig), MAPE
+- `manifest.json` — timestamp UTC, commit git, versions packages, fingerprint dataset
+- `checksums.sha256` + `checksums.json` — intégrité SHA-256
+
+```powershell
+# Via CLI (recommandé — enregistre dans le registre)
+.venv\Scripts\python -m src.cli train --n-trials 60
+
+# Via module direct (sans registre)
+.venv\Scripts\python -m src.training.train_advanced `
+    --data-dir data/processed --out-dir data/models/advanced --n-trials 60
+```
+
+**Performances actuelles (dataset complet ~50k lignes) :**
+
+| Cible | Split | R²(log) | RMSE(log) | R²(orig) | MAPE |
+|---|---|---|---|---|---|
+| max_displacement_m | val | 0.9908 | 0.0529 | 0.9538 | 5.4% |
+| max_displacement_m | test | 0.9917 | 0.0493 | 0.9710 | 5.1% |
+| max_von_mises_pa | val | 0.9925 | 0.0320 | 0.7422 | 3.8% |
+| max_von_mises_pa | test | 0.9939 | 0.0292 | 0.9407 | 3.8% |
+
+### `src/training/train_baseline.py` ← référence
+
+Pipeline sklearn : `OneHotEncoder` + `RandomForestRegressor` (MultiOutput).
+Inclut comparaison avec `DummyRegressor` et CV 5-fold.
+
+```powershell
+.venv\Scripts\python -m src.training.train_baseline `
+    --data-dir data/processed --out-dir data/processed --cv-folds 5
+```
+
+---
+
+## Évaluation (protocole figé)
+
+### `src/evaluation.py`
+
+Centralise le calcul des métriques — toutes les évaluations utilisent la même fonction.
+Produit `metrics.json` (imbriqué par cible/split) et `metrics.csv` (tidy).
+
+Métriques canoniques : `r2_log`, `rmse_log`, `mae_log`, `r2_orig`, `rmse_orig`, `mape`.
+
+---
+
+## Registre de modèles
+
+### `src/registry.py`
+
+Registre local versionné avec pointeur `latest`.
+
+```
+artifacts/models/lgbm_surrogate/
+    v20260310_143022/       ← horodatage UTC
+        *.joblib
+        advanced_metrics.csv
+        manifest.json
+        checksums.sha256
+        checksums.json
+    latest.txt              ← contient "v20260310_143022"
+```
+
+```python
+from src.registry import ModelRegistry
+reg = ModelRegistry(Path("artifacts/models"), "lgbm_surrogate")
+print(reg.latest_version())   # "v20260310_143022"
+print(reg.list_versions())    # ["v20260310_143022", ...]
+```
+
+---
+
+## Reproductibilité
+
+### `src/utils/manifest.py`
+
+Génère un manifest JSON pour chaque run :
+- `timestamp_utc` — horodatage ISO-8601
+- `git_commit` — hash HEAD (ou "unavailable")
+- `package_versions` — lightgbm, scikit-learn, optuna, pandas, numpy, etc.
+- `config` — snapshot des paramètres utilisés
+- `dataset_fingerprint` — SHA-256 agrégé de tous les fichiers d'entrée
+- `dataset_files` — liste des fichiers consommés
+
+### `src/utils/integrity.py`
+
+Génère et vérifie des checksums SHA-256 pour tous les artefacts.
+
+```powershell
+.venv\Scripts\python -m src.cli verify-artifacts
+# → "All artifacts OK — checksums match."
+```
+
+---
+
+## Inférence
+
+### `src/cli.py predict` ← interface principale
+
+```powershell
+.venv\Scripts\python -m src.cli predict `
+  --case-json '{"length_m":1.2,"height_m":0.3,"young_modulus_pa":2.1e11,
+               "poisson_ratio":0.3,"traction_pa":1500000,
+               "mesh_nx":120,"mesh_ny":24,
+               "geometry_type":"with_hole","hole_radius_ratio":0.1}'
+```
+
+Calcule automatiquement les 42 features si seuls les paramètres bruts sont fournis.
+Utilise la dernière version enregistrée dans le registre par défaut.
+
+### `src/inference/predict_baseline.py` ← baseline (legacy)
+
+Inférence avec le modèle RandomForest baseline.
+
+```powershell
+.venv\Scripts\python -m src.inference.predict_baseline `
+  --model-path data/processed/baseline_model.joblib `
+  --case-json '{...}'
+```
+
+---
+
+## Tests
+
+```powershell
+.venv\Scripts\python -m unittest discover -s tests -p "test_*.py" -v
+# Ran 61 tests — OK
+```
+
+| Fichier | Tests | Couverture |
+|---|---|---|
+| `tests/test_config.py` | 13 | Chargement YAML, validation, env var |
+| `tests/test_features.py` | 19 | Formules physiques, splits, nulls |
+| `tests/test_registry.py` | 14 | Versionnement, copie, roundtrip joblib |
+| `tests/test_integrity.py` | 9 | SHA-256, falsification, fichier manquant |
+| `tests/test_smoke.py` | 6 | Pipeline E2E + reproductibilité |
+
+---
+
+## MLflow (optionnel)
+
+```powershell
+$env:MLFLOW_S3_ENDPOINT_URL = "http://localhost:9000"
+$env:AWS_ACCESS_KEY_ID      = "minioadmin"
+$env:AWS_SECRET_ACCESS_KEY  = "minioadmin"
+$env:AWS_DEFAULT_REGION     = "us-east-1"
+
+.venv\Scripts\python -m src.training.train_advanced `
+    --data-dir data/processed --out-dir data/models/advanced `
+    --n-trials 60 --mlflow --mlflow-run-name lgbm-v2
+
+.venv\Scripts\python -m src.training.train_baseline `
+    --data-dir data/processed --out-dir data/processed `
+    --mlflow --mlflow-run-name rf-baseline --cv-folds 5
+```
+
+---
+
+## Infrastructure Docker (optionnel)
+
+`docker-compose.yml` (à recréer si nécessaire) définit :
+MinIO, PostgreSQL, FEniCS, MLflow.
+
+```powershell
+make up    # docker compose up -d
+make down  # docker compose down
 ```

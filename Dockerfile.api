@@ -1,0 +1,29 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install OS-level build deps (needed by some wheels)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps
+COPY requirements/base.txt requirements/base.txt
+COPY requirements/api.txt  requirements/api.txt
+RUN pip install --no-cache-dir -r requirements/api.txt
+
+# Copy source
+COPY src/ src/
+COPY configs/ configs/
+
+# Non-root user for security
+RUN useradd -m appuser && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8000
+
+# Uvicorn: 1 worker for simplicity; scale via replica in docker-compose or k8s
+CMD ["uvicorn", "src.api.main:app", \
+     "--host", "0.0.0.0", "--port", "8000", \
+     "--workers", "2", "--log-level", "info"]

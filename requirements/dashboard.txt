@@ -1,0 +1,6 @@
+# Dashboard / UI dependencies
+streamlit>=1.35
+plotly>=5.21
+requests>=2.31
+pandas>=2.0,<3
+numpy>=1.26,<2
