@@ -60,7 +60,7 @@ services:
 
   # One-shot: create all required buckets then exit
   minio-setup:
-    image: minio/mc:RELEASE.2024-04-01T13-57-10Z
+    image: minio/mc:latest
     depends_on:
       minio:
         condition: service_healthy
@@ -95,7 +95,9 @@ services:
 
 # ── MLflow tracking server ─────────────────────────────────────────────────────
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.12.2
+    build:
+      context: .
+      dockerfile: Dockerfile.mlflow
     <<: *default-restart
     depends_on:
       postgres:
@@ -117,7 +119,7 @@ services:
     ports:
       - "5000:5000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
       interval: 20s
       timeout: 10s
       retries: 6
@@ -131,11 +133,12 @@ services:
       dockerfile: Dockerfile.api
     <<: *default-restart
     environment:
-      MODEL_DIR:        ${MODEL_DIR:-/app/artifacts/models/lgbm_surrogate/latest}
       REGISTRY_DIR:     /app/artifacts/models
       MODEL_NAME:       ${MODEL_NAME:-lgbm_surrogate}
       MLFLOW_TRACKING_URI: http://mlflow:5000
       API_LOG_LEVEL:    ${API_LOG_LEVEL:-INFO}
+      API_USERNAME:     ${API_USERNAME:-admin}
+      API_PASSWORD:     ${API_PASSWORD:-mdp123}
     volumes:
       # Mount the host artifacts directory so the API can read trained models
       - ./artifacts:/app/artifacts:ro
@@ -146,7 +149,7 @@ services:
       mlflow:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s
       timeout: 5s
       retries: 5

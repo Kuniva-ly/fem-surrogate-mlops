@@ -28,9 +28,12 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Request
+import secrets
+
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from src.api.model_loader import ModelBundle, get_bundle, load_models
 from src.api.schemas import (
@@ -100,6 +103,21 @@ except ImportError:
     )
 
 
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+_security = HTTPBasic()
+_API_USER = os.environ.get("API_USERNAME", "admin")
+_API_PASS = os.environ.get("API_PASSWORD", "mdp123")
+
+
+def _require_auth(credentials: HTTPBasicCredentials = Depends(_security)) -> None:
+    ok = secrets.compare_digest(credentials.username, _API_USER) and \
+         secrets.compare_digest(credentials.password, _API_PASS)
+    if not ok:
+        raise HTTPException(status_code=401, detail="Unauthorized",
+                            headers={"WWW-Authenticate": "Basic"})
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _infer(bundle: ModelBundle, request: PredictionRequest) -> dict[str, float]:
@@ -108,6 +126,10 @@ def _infer(bundle: ModelBundle, request: PredictionRequest) -> dict[str, float]:
 
     # Build a single-row DataFrame and auto-engineer features
     case_df = pd.DataFrame([raw])
+    # simulation_id and timestamp are required by engineer_features for validation
+    # but are dropped immediately after — fill with dummy values for API inference
+    case_df["simulation_id"] = "api-inference"
+    case_df["timestamp"] = pd.Timestamp.utcnow()
     case_df = engineer_features(case_df, require_targets=False)
 
     results: dict[str, float] = {}
@@ -137,7 +159,7 @@ async def health() -> HealthResponse:
 
 
 @app.get("/version", response_model=VersionResponse, tags=["ops"])
-async def version() -> VersionResponse:
+async def version(_: None = Depends(_require_auth)) -> VersionResponse:
     bundle = get_bundle()
     return VersionResponse(
         api_version=API_VERSION,
@@ -148,7 +170,7 @@ async def version() -> VersionResponse:
 
 
 @app.post("/predict", response_model=PredictionResponse, tags=["inference"])
-async def predict(request: PredictionRequest) -> PredictionResponse:
+async def predict(request: PredictionRequest, _: None = Depends(_require_auth)) -> PredictionResponse:
     bundle = get_bundle()
     if bundle is None:
         raise HTTPException(

@@ -26,7 +26,11 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-API_URL = os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
+API_URL  = os.environ.get("API_URL",      "http://localhost:8000").rstrip("/")
+_API_AUTH = (
+    os.environ.get("API_USERNAME", "admin"),
+    os.environ.get("API_PASSWORD", "mdp123"),
+)
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -47,7 +51,7 @@ st.caption(
 
 def _get_version() -> dict:
     try:
-        r = requests.get(f"{API_URL}/version", timeout=3)
+        r = requests.get(f"{API_URL}/version", auth=_API_AUTH, timeout=3)
         r.raise_for_status()
         return r.json()
     except Exception:
@@ -65,7 +69,7 @@ def _get_health() -> dict:
 
 def _predict(payload: dict) -> dict | None:
     try:
-        r = requests.post(f"{API_URL}/predict", json=payload, timeout=10)
+        r = requests.post(f"{API_URL}/predict", json=payload, auth=_API_AUTH, timeout=10)
         r.raise_for_status()
         return r.json()
     except requests.HTTPError as e:
