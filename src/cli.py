@@ -1,25 +1,25 @@
-"""CLI entry point for the FEM surrogate ML pipeline.
+"""Point d'entrée CLI pour le pipeline ML surrogate FEM.
 
-Commands
---------
-  build-features    Engineer features and create train/val/test splits.
-  train             Train the advanced LightGBM surrogate model.
-  evaluate          Evaluate a trained model on val/test splits.
-  predict           Run single-case inference.
-  verify-artifacts  Verify SHA-256 integrity of registered artifacts.
+Commandes
+---------
+  build-features    Calcule les features et crée les splits train/val/test.
+  train             Entraîne le modèle surrogate LightGBM avancé.
+  evaluate          Évalue un modèle entraîné sur les splits val/test.
+  predict           Lance l'inférence sur un cas unique.
+  verify-artifacts  Vérifie l'intégrité SHA-256 des artefacts enregistrés.
 
-Usage (Windows PowerShell)
---------------------------
+Utilisation (Windows PowerShell)
+---------------------------------
   .venv\\Scripts\\python -m src.cli build-features --input data/raw
   .venv\\Scripts\\python -m src.cli train --n-trials 60
   .venv\\Scripts\\python -m src.cli evaluate
   .venv\\Scripts\\python -m src.cli predict --case-json '{"length_m": 1.2, ...}'
   .venv\\Scripts\\python -m src.cli verify-artifacts
 
-Config
-------
-  All commands read configs/training.yaml by default.
-  Override with --config <path> or the CONFIG_PATH env var.
+Configuration
+-------------
+  Toutes les commandes lisent configs/training.yaml par défaut.
+  Remplacer avec --config <chemin> ou la variable d'environnement CONFIG_PATH.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 
 
-# ── Sub-command handlers ───────────────────────────────────────────────────────
+# ── Gestionnaires de sous-commandes ──────────────────────────────────────────────
 
 def _cmd_build_features(args: argparse.Namespace) -> int:
     from src.config import load_config
@@ -69,7 +69,7 @@ def _cmd_train(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir) if args.data_dir else d.processed_dir
     out_dir  = Path(args.out_dir)  if args.out_dir  else d.features_dir.parent / "models_run"
 
-    # MLflow: enable via --mlflow flag or MLFLOW_TRACKING_URI env var
+    # MLflow : activé via --mlflow ou la variable MLFLOW_TRACKING_URI
     mlflow_enabled = args.mlflow or bool(os.environ.get("MLFLOW_TRACKING_URI"))
     mlflow_uri     = args.mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
     mlflow_exp     = args.mlflow_experiment or os.environ.get("MLFLOW_EXPERIMENT_NAME", "fem-surrogate")
@@ -109,7 +109,7 @@ def _cmd_train(args: argparse.Namespace) -> int:
     checksums = generate_checksums(artifact_files)
     save_checksums(checksums, out_dir / "checksums")
 
-    # ── Registry ──────────────────────────────────────────────────────────────
+    # ── Registre ──────────────────────────────────────────────────────────────
     if not args.no_registry:
         registry = ModelRegistry(art.registry_dir, art.model_name)
         version, reg_path = registry.register(source_dir=out_dir)
@@ -134,7 +134,7 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
     _EPS = 1e-12
     TARGET_COLS = ["max_displacement_m", "max_von_mises_pa"]
 
-    # Resolve model directory
+    # Résoudre le répertoire du modèle
     if args.model_dir:
         model_dir = Path(args.model_dir)
     else:
@@ -202,7 +202,7 @@ def _cmd_predict(args: argparse.Namespace) -> int:
     TARGET_COLS = ["max_displacement_m", "max_von_mises_pa"]
     _EPS = 1e-12
 
-    # Resolve model directory
+    # Résoudre le répertoire du modèle
     if args.model_dir:
         model_dir = Path(args.model_dir)
     else:
@@ -215,7 +215,7 @@ def _cmd_predict(args: argparse.Namespace) -> int:
             )
             return 1
 
-    # Load input case
+    # Charger le cas d'entrée
     if args.case_json:
         case = _json.loads(args.case_json)
     elif args.case_file:
@@ -235,7 +235,7 @@ def _cmd_predict(args: argparse.Namespace) -> int:
         feature_cols = artifact["feature_cols"]
         encoder      = artifact.get("encoder")
 
-        # Auto-engineer features if raw parameters were supplied
+        # Calculer automatiquement les features si des paramètres bruts ont été fournis
         case_df = pd.DataFrame([case])
         if any(c not in case_df.columns for c in feature_cols):
             case_df = engineer_features(case_df, require_targets=False)
@@ -288,15 +288,15 @@ def _cmd_verify_artifacts(args: argparse.Namespace) -> int:
         return 1
 
 
-# ── Argument parser ───────────────────────────────────────────────────────────
+# ── Parseur d'arguments ──────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m src.cli",
-        description="FEM Surrogate ML Pipeline — production CLI",
+        description="Pipeline ML Surrogate FEM — CLI de production",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Examples:\n"
+            "Exemples:\n"
             "  .venv\\Scripts\\python -m src.cli build-features --input data/raw\n"
             "  .venv\\Scripts\\python -m src.cli train --n-trials 60\n"
             "  .venv\\Scripts\\python -m src.cli evaluate\n"
@@ -312,72 +312,72 @@ def _build_parser() -> argparse.ArgumentParser:
         "--config",
         metavar="PATH",
         default=None,
-        help="YAML config file (default: configs/training.yaml or $CONFIG_PATH)",
+        help="Fichier de configuration YAML (défaut : configs/training.yaml ou $CONFIG_PATH)",
     )
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     # ── build-features ────────────────────────────────────────────────────────
     p = sub.add_parser(
         "build-features",
-        help="Engineer physics-informed features and create train/val/test splits.",
+        help="Calcule les features physiques et crée les splits train/val/test.",
     )
-    p.add_argument("--input",            metavar="DIR",  help="Raw parquet input directory (overrides config)")
-    p.add_argument("--out-dir",          metavar="DIR",  help="Processed splits output directory")
-    p.add_argument("--features-out-dir", metavar="DIR",  help="Feature store output directory")
+    p.add_argument("--input",            metavar="DIR",  help="Répertoire d'entrée parquet brut (remplace la config)")
+    p.add_argument("--out-dir",          metavar="DIR",  help="Répertoire de sortie des splits traités")
+    p.add_argument("--features-out-dir", metavar="DIR",  help="Répertoire de sortie du feature store")
     p.add_argument("--train-ratio",      type=float, default=None, metavar="FLOAT")
     p.add_argument("--val-ratio",        type=float, default=None, metavar="FLOAT")
     p.add_argument("--seed",             type=int,   default=None, metavar="INT")
     p.add_argument("--split-strategy",   choices=["hash", "random"], default=None)
     p.add_argument("--keep-ambiguous",   action="store_true", default=False,
-                   help="Treat ambiguous rows as without_hole instead of dropping them")
+                   help="Traiter les lignes ambiguës comme without_hole au lieu de les supprimer")
 
     # ── train ─────────────────────────────────────────────────────────────────
     p = sub.add_parser(
         "train",
-        help="Train the advanced LightGBM surrogate with Optuna tuning.",
+        help="Entraîne le surrogate LightGBM avancé avec l'optimisation Optuna.",
     )
-    p.add_argument("--data-dir",     metavar="DIR", help="Directory with train/val/test .parquet files")
-    p.add_argument("--out-dir",      metavar="DIR", help="Output directory for model artifacts")
+    p.add_argument("--data-dir",     metavar="DIR", help="Répertoire contenant les fichiers .parquet train/val/test")
+    p.add_argument("--out-dir",      metavar="DIR", help="Répertoire de sortie pour les artefacts du modèle")
     p.add_argument("--n-trials",     type=int, default=None, metavar="INT",
-                   help="Optuna trials per target (0 = use default params, skip search)")
+                   help="Essais Optuna par cible (0 = utiliser les paramètres par défaut, ignorer la recherche)")
     p.add_argument("--cv-folds",     type=int, default=None, metavar="INT")
     p.add_argument("--random-state", type=int, default=None, metavar="INT")
     p.add_argument("--no-registry",  action="store_true",
-                   help="Skip registering artifacts in the model registry")
+                   help="Ne pas enregistrer les artefacts dans le registre de modèles")
     p.add_argument("--mlflow",        action="store_true",
-                   help="Log experiment to MLflow (auto-enabled when MLFLOW_TRACKING_URI is set)")
+                   help="Enregistrer l'expérience dans MLflow (activé automatiquement si MLFLOW_TRACKING_URI est défini)")
     p.add_argument("--mlflow-tracking-uri", metavar="URI",
-                   help="MLflow tracking URI (default: $MLFLOW_TRACKING_URI)")
+                   help="URI de suivi MLflow (défaut : $MLFLOW_TRACKING_URI)")
     p.add_argument("--mlflow-experiment", metavar="NAME",
-                   help="MLflow experiment name (default: $MLFLOW_EXPERIMENT_NAME or 'fem-surrogate')")
+                   help="Nom de l'expérience MLflow (défaut : $MLFLOW_EXPERIMENT_NAME ou 'fem-surrogate')")
     p.add_argument("--mlflow-run-name", metavar="NAME",
-                   help="MLflow run name (default: auto)")
+                   help="Nom du run MLflow (défaut : auto)")
 
     # ── evaluate ──────────────────────────────────────────────────────────────
     p = sub.add_parser(
         "evaluate",
-        help="Evaluate trained model on val/test splits (uses latest registry version by default).",
+        help="Évalue le modèle entraîné sur les splits val/test (utilise la dernière version du registre par défaut).",
     )
-    p.add_argument("--model-dir", metavar="DIR", help="Model version directory (overrides registry lookup)")
-    p.add_argument("--data-dir",  metavar="DIR", help="Directory with split parquet files")
-    p.add_argument("--out-dir",   metavar="DIR", help="Directory for evaluation output files")
+    p.add_argument("--model-dir", metavar="DIR", help="Répertoire de version du modèle (remplace la recherche dans le registre)")
+    p.add_argument("--data-dir",  metavar="DIR", help="Répertoire contenant les fichiers parquet des splits")
+    p.add_argument("--out-dir",   metavar="DIR", help="Répertoire pour les fichiers de sortie de l'évaluation")
 
     # ── predict ───────────────────────────────────────────────────────────────
     p = sub.add_parser(
         "predict",
-        help="Run inference on a single case (auto-engineers features from raw params).",
+        help="Lance l'inférence sur un cas unique (calcule automatiquement les features depuis les paramètres bruts).",
     )
-    p.add_argument("--model-dir",  metavar="DIR",  help="Model directory (default: latest from registry)")
-    p.add_argument("--case-json",  metavar="JSON", help="Inline JSON case dict")
-    p.add_argument("--case-file",  metavar="FILE", help="Path to JSON file with case parameters")
+    p.add_argument("--model-dir",  metavar="DIR",  help="Répertoire du modèle (défaut : dernière version du registre)")
+    p.add_argument("--case-json",  metavar="JSON", help="Dict JSON en ligne pour le cas d'entrée")
+    p.add_argument("--case-file",  metavar="FILE", help="Chemin vers un fichier JSON contenant les paramètres du cas")
 
     # ── verify-artifacts ──────────────────────────────────────────────────────
     p = sub.add_parser(
         "verify-artifacts",
-        help="Verify SHA-256 checksums of model artifacts.",
+        help="Vérifie les checksums SHA-256 des artefacts du modèle.",
     )
     p.add_argument("--checksums-path", metavar="PATH",
-                   help="Checksums file path without extension (default: latest registry version)")
+                   help="Chemin du fichier de checksums sans extension (défaut : dernière version du registre)")
 
     return parser
 

@@ -48,7 +48,7 @@ DIMENSION_CATEGORIES = {
 
 
 def _fenics_jit_options() -> dict[str, Any]:
-    # Isolate JIT cache per process to avoid stale lock/contention in shared caches.
+    # Isoler le cache JIT par processus pour éviter les conflits de verrou dans les caches partagés.
     cache_root = Path(os.getenv("FENICS_JIT_CACHE_DIR", f"/tmp/fenics_jit_{os.getpid()}"))
     cache_root.mkdir(parents=True, exist_ok=True)
     timeout_s = int(os.getenv("FENICS_JIT_TIMEOUT", "300"))
@@ -185,7 +185,7 @@ def solve_plate_fenics(
             hole = gmsh.model.occ.addDisk(cx, cy, 0.0, hole_radius_m, hole_radius_m)
             gmsh.model.occ.cut([(2, rect)], [(2, hole)], removeObject=True, removeTool=True)
             gmsh.model.occ.synchronize()
-            # dolfinx.io.gmsh.model_to_mesh requires physical groups.
+            # dolfinx.io.gmsh.model_to_mesh nécessite des groupes physiques.
             surfaces = gmsh.model.getEntities(2)
             if not surfaces:
                 raise RuntimeError("Gmsh failed to build 2D surface for plate-with-hole domain")
@@ -200,7 +200,7 @@ def solve_plate_fenics(
                 gmsh.model.mesh.setSize(points, char_len)
             gmsh.model.mesh.generate(2)
         mesh_data = model_to_mesh(gmsh.model, MPI.COMM_WORLD, 0, gdim=2)
-        # dolfinx versions differ: tuple(mesh, tags...) or MeshData with .mesh
+        # Les versions dolfinx diffèrent : tuple(mesh, tags...) ou MeshData avec .mesh
         if hasattr(mesh_data, "mesh"):
             domain = mesh_data.mesh
         elif isinstance(mesh_data, (tuple, list)) and len(mesh_data) >= 1:

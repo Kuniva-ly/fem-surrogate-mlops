@@ -1,15 +1,15 @@
-"""Run manifest for reproducibility.
+"""Manifeste de run pour la reproductibilité.
 
-Captures and persists:
-  - run timestamp (UTC ISO-8601)
-  - git commit hash
-  - installed package versions
-  - config snapshot
-  - dataset fingerprint (SHA-256 across all training files)
-  - dataset file list
+Capture et persiste :
+  - horodatage du run (UTC ISO-8601)
+  - hash du commit git
+  - versions des paquets installés
+  - snapshot de la configuration
+  - empreinte du jeu de données (SHA-256 sur tous les fichiers d'entraînement)
+  - liste des fichiers du jeu de données
 
-Usage
------
+Utilisation
+-----------
     from src.utils.manifest import build_manifest, save_manifest
 
     manifest = build_manifest(
@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# Packages whose versions we always track
+# Paquets dont on suit toujours les versions
 _TRACKED_PACKAGES = [
     "lightgbm",
     "scikit-learn",
@@ -42,7 +42,7 @@ _TRACKED_PACKAGES = [
 
 
 def _git_commit() -> str:
-    """Return current HEAD commit hash, or 'unavailable'."""
+    """Retourne le hash du commit HEAD actuel, ou 'unavailable'."""
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -66,7 +66,7 @@ def _package_versions(packages: list[str]) -> dict[str, str]:
 
 
 def dataset_fingerprint(paths: list[Path]) -> str:
-    """Compute a single SHA-256 digest across all provided files (sorted)."""
+    """Calcule un condensé SHA-256 unique sur tous les fichiers fournis (triés)."""
     h = hashlib.sha256()
     for p in sorted(str(x) for x in paths):
         fp = Path(p)
@@ -80,15 +80,15 @@ def build_manifest(
     dataset_paths: list[Path],
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a reproducibility manifest dictionary.
+    """Construit un dictionnaire manifeste de reproductibilité.
 
     Args:
-        config_snapshot: Serializable dict of run parameters.
-        dataset_paths:   List of dataset files consumed by this run.
-        extra:           Additional key-value pairs to include.
+        config_snapshot: Dict sérialisable des paramètres du run.
+        dataset_paths:   Liste des fichiers de jeu de données consommés par ce run.
+        extra:           Paires clé-valeur supplémentaires à inclure.
 
     Returns:
-        Manifest dict ready for JSON serialisation.
+        Dict manifeste prêt pour la sérialisation JSON.
     """
     manifest: dict[str, Any] = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -104,7 +104,7 @@ def build_manifest(
 
 
 def save_manifest(manifest: dict[str, Any], out_path: Path) -> None:
-    """Write manifest dict to a JSON file."""
+    """Écrit le dict manifeste dans un fichier JSON."""
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(

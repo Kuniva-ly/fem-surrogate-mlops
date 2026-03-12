@@ -1,4 +1,4 @@
-"""Tests for artifact integrity (src/utils/integrity.py)."""
+"""Tests pour l'intégrité des artefacts (src/utils/integrity.py)."""
 import tempfile
 import unittest
 from pathlib import Path
@@ -74,7 +74,7 @@ class TestGenerateAndVerify(unittest.TestCase):
         f = self._make_file("model.joblib", b"original")
         cs = generate_checksums([f])
         save_checksums(cs, self.base / "checksums")
-        # Tamper with file
+        # Altérer le fichier
         f.write_bytes(b"tampered")
         ok, errors = verify_checksums(self.base / "checksums")
         self.assertFalse(ok)

@@ -1,21 +1,21 @@
-"""FEM Surrogate Model — FastAPI serving layer.
+"""Couche de service FastAPI pour le modèle Surrogate FEM.
 
 Endpoints
 ---------
-GET  /health       Liveness + model readiness probe
-GET  /version      API and model version info
-POST /predict      Single-case surrogate inference
-GET  /metrics      Prometheus metrics (via prometheus-fastapi-instrumentator)
+GET  /health       Sonde de disponibilité + état du modèle
+GET  /version      Informations de version API et modèle
+POST /predict      Inférence surrogate sur un cas unique
+GET  /metrics      Métriques Prometheus (via prometheus-fastapi-instrumentator)
 
-Configuration (environment variables)
---------------------------------------
-MODEL_DIR          Path to model version directory (overrides registry lookup)
-REGISTRY_DIR       Path to model registry root (default: artifacts/models)
-MODEL_NAME         Model name in registry (default: lgbm_surrogate)
-API_LOG_LEVEL      Logging level (default: INFO)
+Configuration (variables d'environnement)
+------------------------------------------
+MODEL_DIR          Chemin vers le répertoire de version du modèle (remplace le registre)
+REGISTRY_DIR       Chemin vers la racine du registre (défaut : artifacts/models)
+MODEL_NAME         Nom du modèle dans le registre (défaut : lgbm_surrogate)
+API_LOG_LEVEL      Niveau de journalisation (défaut : INFO)
 
-Run locally
------------
+Exécution locale
+----------------
     uvicorn src.api.main:app --reload --port 8000
 """
 from __future__ import annotations
@@ -56,7 +56,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ── Lifespan (startup / shutdown) ─────────────────────────────────────────────
+# ── Cycle de vie (démarrage / arrêt) ─────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -67,12 +67,12 @@ async def lifespan(app: FastAPI):
         logger.info("Models loaded successfully.")
     except Exception as exc:
         logger.error("Model loading failed: %s", exc)
-        # Do NOT raise — let the app start in degraded mode so /health reports the problem
+        # Ne PAS lever d'exception — laisser l'application démarrer en mode dégradé pour que /health signale le problème
     yield
     logger.info("Shutting down.")
 
 
-# ── App ───────────────────────────────────────────────────────────────────────
+# ── Application ───────────────────────────────────────────────────────────────
 
 app = FastAPI(
     title="FEM Surrogate API",
@@ -91,7 +91,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Prometheus instrumentation
+# Instrumentation Prometheus
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
     Instrumentator().instrument(app).expose(app, endpoint="/metrics")
@@ -103,7 +103,7 @@ except ImportError:
     )
 
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
+# ── Authentification ──────────────────────────────────────────────────────────
 
 _security = HTTPBasic()
 _API_USER = os.environ.get("API_USERNAME", "admin")
@@ -118,16 +118,16 @@ def _require_auth(credentials: HTTPBasicCredentials = Depends(_security)) -> Non
                             headers={"WWW-Authenticate": "Basic"})
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Fonctions utilitaires ──────────────────────────────────────────────────────
 
 def _infer(bundle: ModelBundle, request: PredictionRequest) -> dict[str, float]:
-    """Run inference for all loaded targets. Returns {target: value_in_original_space}."""
+    """Lance l'inférence pour toutes les cibles chargées. Retourne {cible: valeur_en_espace_original}."""
     raw = request.model_dump()
 
-    # Build a single-row DataFrame and auto-engineer features
+    # Construire un DataFrame d'une seule ligne et calculer automatiquement les features
     case_df = pd.DataFrame([raw])
-    # simulation_id and timestamp are required by engineer_features for validation
-    # but are dropped immediately after — fill with dummy values for API inference
+    # simulation_id et timestamp sont requis par engineer_features pour la validation
+    # mais supprimés immédiatement après — remplir avec des valeurs fictives pour l'inférence API
     case_df["simulation_id"] = "api-inference"
     case_df["timestamp"] = pd.Timestamp.utcnow()
     case_df = engineer_features(case_df, require_targets=False)

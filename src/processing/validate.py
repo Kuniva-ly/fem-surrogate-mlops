@@ -95,7 +95,7 @@ def validate_folder(input_dir: Path) -> None:
     parquet_files = sorted(input_dir.rglob("*.parquet"))
     csv_files = sorted(input_dir.rglob("*.csv"))
 
-    # Prefer parquet when present to avoid schema-mixing with legacy CSV files.
+    # Préférer parquet si présent pour éviter le mélange de schémas avec les anciens CSV.
     if parquet_files:
         files = parquet_files
     else:
@@ -147,8 +147,8 @@ def validate_folder(input_dir: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Validate generated simulation parquet data.")
-    parser.add_argument("--input", required=True, type=Path, help="Input folder containing parquet files")
+    parser = argparse.ArgumentParser(description="Valide les données parquet de simulation générées.")
+    parser.add_argument("--input", required=True, type=Path, help="Dossier d'entrée contenant les fichiers parquet")
     args = parser.parse_args()
     validate_folder(args.input)
 

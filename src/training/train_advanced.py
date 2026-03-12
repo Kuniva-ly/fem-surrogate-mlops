@@ -1,41 +1,34 @@
-"""Advanced surrogate training: LightGBM + log-transform targets + Optuna tuning.
+"""Entraînement surrogate avancé : LightGBM + transformation log des cibles + optimisation Optuna.
 
-Key improvements over train_baseline.py
-----------------------------------------
-1. Log-transform targets before training.
-   - max_von_mises_pa spans ~4 decades (1e4 → 4e8 Pa).
-   - max_displacement_m spans ~6 decades (1e-8 → 1e-2 m).
-   - RMSE in log-space weights all regimes equally.
-   - Predictions are back-transformed (10**pred) for final evaluation.
+Améliorations clés par rapport à train_baseline.py
+---------------------------------------------------
+1. Transformation log des cibles avant l'entraînement.
+   - max_von_mises_pa couvre ~4 décades (1e4 → 4e8 Pa).
+   - max_displacement_m couvre ~6 décades (1e-8 → 1e-2 m).
+   - Le RMSE en espace log pondère également tous les régimes.
+   - Les prédictions sont retransformées (10**pred) pour l'évaluation finale.
 
-2. LightGBM instead of RandomForest.
-   - 5-10x faster training on 50k rows.
-   - Typically 5-15 R² points better on tabular physics data at this scale.
+2. LightGBM à la place de RandomForest.
+   - 5-10x plus rapide sur 50k lignes.
+   - Généralement 5-15 points de R² en plus sur des données physiques tabulaires à cette échelle.
 
-3. Optuna hyperparameter optimisation.
-   - 60 trials by default, 5-fold CV, minimises RMSE on log(target).
-   - Searches: n_estimators, learning_rate, num_leaves, max_depth,
+3. Optimisation des hyperparamètres avec Optuna.
+   - 60 essais par défaut, validation croisée 5-fold, minimise le RMSE sur log(cible).
+   - Recherche sur : n_estimators, learning_rate, num_leaves, max_depth,
      min_child_samples, subsample, colsample_bytree, reg_alpha, reg_lambda.
 
-4. Separate models per target (displacement vs von Mises) — each target has
-   very different physics drivers so independent models work better than
-   MultiOutputRegressor here.
+4. Modèles séparés par cible (déplacement vs von Mises) — chaque cible a
+   des drivers physiques très différents, les modèles indépendants fonctionnent
+   mieux que MultiOutputRegressor ici.
 
-5. Physics sanity checks on predictions (PDP monotonicity).
+5. Vérifications physiques des prédictions (monotonicité PDP).
 
-Usage
------
-python -m src.training.train_advanced \
-    --data-dir data/processed \
-    --out-dir  data/models/advanced \
-    --n-trials 60
+Utilisation
+-----------
+python -m src.training.train_advanced     --data-dir data/processed     --out-dir  data/models/advanced     --n-trials 60
 
-With MLflow:
-python -m src.training.train_advanced \
-    --data-dir data/processed \
-    --out-dir  data/models/advanced \
-    --n-trials 60 \
-    --mlflow --mlflow-run-name lgbm-advanced
+Avec MLflow :
+python -m src.training.train_advanced     --data-dir data/processed     --out-dir  data/models/advanced     --n-trials 60     --mlflow --mlflow-run-name lgbm-advanced
 """
 import argparse
 import os
@@ -62,43 +55,43 @@ warnings.filterwarnings("ignore", category=UserWarning, module="lightgbm")
 
 
 def _set_global_seed(seed: int) -> None:
-    """Propagate a global seed to all relevant RNG sources."""
+    """Propage une graine globale à toutes les sources RNG concernées."""
     random.seed(seed)
     np.random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
 
-# ── Constants ──────────────────────────────────────────────────────────────────
+# ── Constantes ────────────────────────────────────────────────────────────────
 TARGET_COLS    = ["max_displacement_m", "max_von_mises_pa"]
 DROP_COLS      = ["simulation_id", "timestamp", "solver_name",
                   "solver_version", "data_version", "mesh_nx", "mesh_ny"]
 CAT_COLS       = ["geometry_type", "material_category", "dimension_category"]
 _EPS           = 1e-12
 
-# Physics monotonicity constraints for LightGBM.
-# +1 = target increases with this feature
-# -1 = target decreases with this feature
-#  0 = no constraint
-# Applied to both models; features absent in X are silently ignored.
+# Contraintes de monotonicité physiques pour LightGBM.
+# +1 = la cible augmente avec cette feature
+# -1 = la cible diminue avec cette feature
+#  0 = pas de contrainte
+# Appliquées aux deux modèles ; les features absentes dans X sont ignorées silencieusement.
 _MONO_CONSTRAINTS: dict[str, int] = {
-    "traction_pa":       +1,   # more load  -> more stress & more displacement
-    "young_modulus_pa":  -1,   # stiffer    -> less displacement (not directly on vm)
+    "traction_pa":       +1,   # plus de charge  -> plus de contrainte et de déplacement
+    "young_modulus_pa":  -1,   # plus rigide -> moins de déplacement (pas directement sur vm)
     "logS":              +1,
     "logE":              -1,
     "log_sigma_net":     +1,
     "sigma_net":         +1,
-    "log_delta_th":      +1,   # larger theoretical displacement -> larger actual
+    "log_delta_th":      +1,   # déplacement théorique plus grand -> plus grand réel
     "delta_theory":      +1,
     "epsilon":           +1,
-    "hole_radius_ratio": +1,   # bigger hole -> more stress concentration
+    "hole_radius_ratio": +1,   # trou plus grand -> plus grande concentration de contrainte
     "d_over_W":          +1,
     "Kt_theory":         +1,
-    "edge_ratio":        +1,   # hole closer to edge -> more stress
-    "net_section_ratio": -1,   # less net section -> more stress
-    "lig_min":           -1,   # smaller ligament -> more stress
+    "edge_ratio":        +1,   # trou plus proche du bord -> plus de contrainte
+    "net_section_ratio": -1,   # moins de section nette -> plus de contrainte
+    "lig_min":           -1,   # ligament plus petit -> plus de contrainte
 }
 
 
-# ── I/O ───────────────────────────────────────────────────────────────────────
+# ── E/S ───────────────────────────────────────────────────────────────────────
 def _load(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Split file not found: {path}")
@@ -110,25 +103,25 @@ def _feature_columns(df: pd.DataFrame) -> list[str]:
     return [c for c in df.columns if c not in exclude]
 
 
-# ── Preprocessing ─────────────────────────────────────────────────────────────
+# ── Prétraitement ─────────────────────────────────────────────────────────────
 def _encode_categoricals(
     train: pd.DataFrame,
     val: pd.DataFrame,
     test: pd.DataFrame,
     feature_cols: list[str],
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, OrdinalEncoder | None]:
-    """Ordinal-encode categorical columns. Returns (train, val, test, encoder).
+    """Encode ordinalement les colonnes catégorielles. Retourne (train, val, test, encoder).
 
-    The encoder is fit ONLY on the training split to prevent data leakage.
-    Val and test splits are transformed with the already-fitted encoder.
-    Unknown categories encountered in val/test are encoded as -1.
+    L'encodeur est ajusté UNIQUEMENT sur le split train pour éviter la fuite de données.
+    Les splits val et test sont transformés avec l'encodeur déjà ajusté.
+    Les catégories inconnues rencontrées dans val/test sont encodées comme -1.
     """
     cat_present = [c for c in CAT_COLS if c in feature_cols]
     if not cat_present:
         return train, val, test, None
 
     enc = OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)
-    # Fit on train only — never on val or test
+    # Ajustement sur train uniquement — jamais sur val ou test
     train[cat_present] = enc.fit_transform(train[cat_present].astype(str))
     for df_ in (val, test):
         df_[cat_present] = enc.transform(df_[cat_present].astype(str))
@@ -136,7 +129,7 @@ def _encode_categoricals(
 
 
 def _log_targets(df: pd.DataFrame) -> pd.DataFrame:
-    """Add log10-transformed target columns."""
+    """Ajoute les colonnes de cibles transformées en log10."""
     out = df.copy()
     for t in TARGET_COLS:
         if t in out.columns:
@@ -144,7 +137,7 @@ def _log_targets(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-# ── Metrics ───────────────────────────────────────────────────────────────────
+# ── Métriques ─────────────────────────────────────────────────────────────────
 def _metrics(y_true_log: np.ndarray, y_pred_log: np.ndarray,
              y_true_orig: np.ndarray) -> dict[str, float]:
     y_pred_orig = 10.0 ** y_pred_log
@@ -159,7 +152,7 @@ def _metrics(y_true_log: np.ndarray, y_pred_log: np.ndarray,
     }
 
 
-# ── Optuna objective ──────────────────────────────────────────────────────────
+# ── Objectif Optuna ───────────────────────────────────────────────────────────
 def _build_optuna_objective(
     X_train: pd.DataFrame,
     y_train: np.ndarray,
@@ -203,7 +196,7 @@ def _build_optuna_objective(
     return objective
 
 
-# ── Train one model ───────────────────────────────────────────────────────────
+# ── Entraîner un modèle ───────────────────────────────────────────────────────
 def _train_one_target(
     target_name: str,
     X_train: pd.DataFrame,
@@ -219,17 +212,17 @@ def _train_one_target(
     cv_folds: int,
     random_state: int,
 ) -> tuple[lgb.LGBMRegressor, dict, dict]:
-    """Tune + fit one LightGBM model for a single (log-transformed) target."""
+    """Optimise et entraîne un modèle LightGBM pour une cible unique (transformée en log)."""
     print(f"\n{'='*60}")
     print(f"Target: {target_name}")
     print(f"{'='*60}")
 
     cv = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
 
-    # Build monotonicity constraint vector (must match feature_cols order)
+    # Construction du vecteur de contraintes de monotonicité (doit correspondre à l'ordre de feature_cols)
     mono_constraints = [_MONO_CONSTRAINTS.get(c, 0) for c in feature_cols]
 
-    # ── Optuna search ──────────────────────────────────────────────────────
+    # ── Recherche Optuna ───────────────────────────────────────────────────
     if n_trials > 0:
         print(f"Optuna: searching {n_trials} trials ...")
         study = optuna.create_study(
@@ -246,7 +239,7 @@ def _train_one_target(
         print(f"  Best CV RMSE(log): {study.best_value:.5f}")
         print(f"  Best params: {best_params}")
     else:
-        # Sensible defaults when Optuna is disabled
+        # Paramètres par défaut quand Optuna est désactivé
         best_params = {
             "n_estimators": 1000, "learning_rate": 0.05,
             "num_leaves": 127,    "max_depth": 8,
@@ -254,7 +247,7 @@ def _train_one_target(
             "colsample_bytree": 0.8, "reg_alpha": 0.1, "reg_lambda": 1.0,
         }
 
-    # ── Final model on full train set ─────────────────────────────────────
+    # ── Modèle final sur le jeu d'entraînement complet ────────────────────
     final_params = {
         "objective":         "regression",
         "metric":            "rmse",
@@ -272,7 +265,7 @@ def _train_one_target(
                    lgb.log_evaluation(-1)],
     )
 
-    # ── Evaluate ──────────────────────────────────────────────────────────
+    # ── Évaluation ────────────────────────────────────────────────────────
     val_metrics  = _metrics(y_val_log,  model.predict(X_val),  y_val_orig)
     test_metrics = _metrics(y_test_log, model.predict(X_test), y_test_orig)
 
@@ -288,7 +281,7 @@ def _train_one_target(
     return model, val_metrics, test_metrics
 
 
-# ── Feature importance summary ────────────────────────────────────────────────
+# ── Résumé de l'importance des features ──────────────────────────────────────
 def _print_top_features(model: lgb.LGBMRegressor, feature_cols: list[str],
                          target_name: str, top_n: int = 15) -> None:
     imp = pd.Series(model.feature_importances_, index=feature_cols)
@@ -298,7 +291,7 @@ def _print_top_features(model: lgb.LGBMRegressor, feature_cols: list[str],
         print(f"    {feat:30s}: {val:6.0f}")
 
 
-# ── Main training function ────────────────────────────────────────────────────
+# ── Fonction principale d'entraînement ───────────────────────────────────────
 def train_advanced(
     data_dir: Path,
     out_dir: Path,
@@ -310,10 +303,10 @@ def train_advanced(
     mlflow_experiment: str = "advanced-surrogate",
     mlflow_run_name: str | None = None,
 ) -> None:
-    # ── Seed all RNG sources for full determinism ─────────────────────────
+    # ── Initialiser toutes les sources RNG pour un déterminisme complet ───
     _set_global_seed(random_state)
 
-    # ── Load splits ───────────────────────────────────────────────────────
+    # ── Charger les splits ────────────────────────────────────────────────
     train_df = _load(data_dir / "train.parquet")
     val_df   = _load(data_dir / "val.parquet")
     test_df  = _load(data_dir / "test.parquet")
@@ -327,12 +320,12 @@ def train_advanced(
     if not feature_cols:
         raise ValueError("No feature columns found after dropping targets/metadata.")
 
-    # ── Log-transform targets ─────────────────────────────────────────────
+    # ── Transformation log des cibles ─────────────────────────────────────
     train_df = _log_targets(train_df)
     val_df   = _log_targets(val_df)
     test_df  = _log_targets(test_df)
 
-    # ── Encode categoricals ───────────────────────────────────────────────
+    # ── Encoder les variables catégorielles ───────────────────────────────
     train_df, val_df, test_df, enc = _encode_categoricals(
         train_df, val_df, test_df, feature_cols
     )
@@ -358,7 +351,7 @@ def train_advanced(
     all_metrics: dict[str, dict] = {}
     artifacts: dict[str, Path]   = {}
 
-    # ── Train one model per target ────────────────────────────────────────
+    # ── Entraîner un modèle par cible ─────────────────────────────────────
     for target in TARGET_COLS:
         log_target = f"log_{target}"
         y_train = train_df[log_target].to_numpy()
@@ -388,7 +381,7 @@ def train_advanced(
         artifacts[target] = model_path
         print(f"\n  Model saved: {model_path}")
 
-    # ── Summary ───────────────────────────────────────────────────────────
+    # ── Résumé ────────────────────────────────────────────────────────────
     print("\n" + "="*60)
     print("FINAL SUMMARY")
     print("="*60)
@@ -406,7 +399,7 @@ def train_advanced(
     metrics_df.to_csv(metrics_path, index=False)
     print(f"\nMetrics saved: {metrics_path}")
 
-    # ── MLflow logging ────────────────────────────────────────────────────
+    # ── Journalisation MLflow ─────────────────────────────────────────────
     if mlflow_enabled:
         if mlflow is None:
             raise ImportError("mlflow not installed. pip install mlflow")
@@ -441,12 +434,12 @@ def train_advanced(
 # ── CLI ───────────────────────────────────────────────────────────────────────
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Train advanced LightGBM surrogate with log-transform and Optuna tuning."
+        description="Entraîne le surrogate LightGBM avancé avec transformation log et optimisation Optuna."
     )
     parser.add_argument("--data-dir",  type=Path, default=Path("data/processed"))
     parser.add_argument("--out-dir",   type=Path, default=Path("data/models/advanced"))
     parser.add_argument("--n-trials",  type=int,  default=60,
-                        help="Number of Optuna trials per target (0 = use defaults).")
+                        help="Nombre d'essais Optuna par cible (0 = utiliser les valeurs par défaut).")
     parser.add_argument("--cv-folds",  type=int,  default=5)
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument("--mlflow",    action="store_true")

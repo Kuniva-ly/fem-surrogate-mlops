@@ -1,11 +1,11 @@
-"""Tests for feature engineering (src/processing/build_features.py).
+"""Tests pour l'ingénierie des features (src/processing/build_features.py).
 
-Verifies:
-  - Schema consistency (feature columns are stable across runs)
-  - Feature completeness (all expected columns are produced)
-  - Value correctness (physics formulas)
-  - Deterministic splitting (same seed → same assignment)
-  - No nulls after engineering
+Vérifie :
+  - Cohérence du schéma (les colonnes de features sont stables entre les runs)
+  - Complétude des features (toutes les colonnes attendues sont produites)
+  - Exactitude des valeurs (formules physiques)
+  - Division déterministe (même graine → même assignation)
+  - Pas de valeurs nulles après le calcul des features
 """
 import unittest
 import uuid
@@ -23,7 +23,7 @@ from src.processing.build_features import (
 
 
 def _make_row(geometry_type="with_hole", **kwargs) -> dict:
-    """Return a minimal valid raw simulation row."""
+    """Retourne une ligne de simulation brute minimale valide."""
     base = {
         "simulation_id":       str(uuid.uuid4()),
         "timestamp":           "2026-03-10T00:00:00Z",
@@ -54,7 +54,7 @@ def _make_row(geometry_type="with_hole", **kwargs) -> dict:
 
 def _make_df(n: int = 10, geometry_type: str = "with_hole") -> pd.DataFrame:
     rows = [_make_row(geometry_type=geometry_type) for _ in range(n)]
-    # Make simulation_ids unique
+    # Rendre les simulation_ids uniques
     for i, r in enumerate(rows):
         r["simulation_id"] = f"sim-{i:06d}"
     return pd.DataFrame(rows)
@@ -97,7 +97,7 @@ class TestEngineerFeatures(unittest.TestCase):
             self.assertIn(col, out.columns, f"Missing expected column: {col}")
 
     def test_mesh_columns_present_but_excluded_from_features(self) -> None:
-        """Mesh columns travel through engineer_features but are excluded from model features."""
+        """Les colonnes de maillage transitent par engineer_features mais sont exclues des features du modèle."""
         out = engineer_features(self.df_hole)
         for col in MESH_COLS:
             self.assertIn(col, out.columns, f"Mesh column {col} should be in DataFrame")
@@ -112,13 +112,13 @@ class TestEngineerFeatures(unittest.TestCase):
             self.assertNotIn(col, feat_cols)
 
     def test_physics_epsilon_formula(self) -> None:
-        """epsilon = traction / young_modulus."""
+        """epsilon = traction / module_de_young."""
         out = engineer_features(self.df_hole)
         expected = self.df_hole["traction_pa"] / self.df_hole["young_modulus_pa"]
         np.testing.assert_allclose(out["epsilon"].values, expected.values, rtol=1e-9)
 
     def test_delta_theory_formula(self) -> None:
-        """delta_theory = epsilon * length."""
+        """delta_theory = epsilon * longueur."""
         out = engineer_features(self.df_hole)
         expected = out["epsilon"] * self.df_hole["length_m"]
         np.testing.assert_allclose(out["delta_theory"].values, expected.values, rtol=1e-9)
@@ -136,7 +136,7 @@ class TestEngineerFeatures(unittest.TestCase):
         np.testing.assert_array_equal(out["Kt_theory"].values, 1.0)
 
     def test_feature_schema_stable_across_runs(self) -> None:
-        """Running engineer_features twice with same data gives the same column list."""
+        """Exécuter engineer_features deux fois avec les mêmes données donne la même liste de colonnes."""
         out1 = engineer_features(self.df_hole)
         out2 = engineer_features(self.df_hole.copy())
         self.assertEqual(_feature_columns(out1), _feature_columns(out2))

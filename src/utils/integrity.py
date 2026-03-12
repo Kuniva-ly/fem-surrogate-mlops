@@ -1,15 +1,15 @@
-"""Artifact integrity: SHA-256 checksum generation and verification.
+"""Intégrité des artefacts : génération et vérification des checksums SHA-256.
 
-Usage
------
+Utilisation
+-----------
     from src.utils.integrity import generate_checksums, save_checksums, verify_checksums
 
-    # Generate
+    # Générer
     paths = list(Path("artifacts/models/lgbm_surrogate/v20260310_120000").glob("*"))
     checksums = generate_checksums(paths)
     save_checksums(checksums, Path("artifacts/.../checksums"))
 
-    # Verify
+    # Vérifier
     ok, errors = verify_checksums(Path("artifacts/.../checksums"))
     if not ok:
         for e in errors:
@@ -23,7 +23,7 @@ from pathlib import Path
 
 
 def sha256_file(path: Path) -> str:
-    """Compute SHA-256 hex digest of a file (streaming, works for large files)."""
+    """Calcule le condensé hexadécimal SHA-256 d'un fichier (en flux, fonctionne pour les grands fichiers)."""
     h = hashlib.sha256()
     with Path(path).open("rb") as fh:
         for chunk in iter(lambda: fh.read(65_536), b""):
@@ -32,7 +32,7 @@ def sha256_file(path: Path) -> str:
 
 
 def generate_checksums(paths: list[Path]) -> dict[str, str]:
-    """Return {str(path): sha256_hex} for each path. Missing files → 'MISSING'."""
+    """Retourne {str(path): sha256_hex} pour chaque chemin. Fichiers manquants → 'MISSING'."""
     return {
         str(p): sha256_file(p) if Path(p).exists() else "MISSING"
         for p in paths
@@ -40,19 +40,19 @@ def generate_checksums(paths: list[Path]) -> dict[str, str]:
 
 
 def save_checksums(checksums: dict[str, str], out_path: Path) -> None:
-    """Save checksums in two formats:
+    """Sauvegarde les checksums dans deux formats :
 
-    - ``<out_path>.sha256``  — sha256sum-compatible text format
-    - ``<out_path>.json``    — JSON dict for programmatic access
+    - ``<out_path>.sha256``  — format texte compatible sha256sum
+    - ``<out_path>.json``    — dict JSON pour accès programmatique
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Text format (compatible with sha256sum / certutil)
+    # Format texte (compatible sha256sum / certutil)
     lines = [f"{digest}  {file_path}" for file_path, digest in sorted(checksums.items())]
     out_path.with_suffix(".sha256").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    # JSON format
+    # Format JSON
     out_path.with_suffix(".json").write_text(
         json.dumps(checksums, indent=2), encoding="utf-8"
     )
@@ -60,12 +60,12 @@ def save_checksums(checksums: dict[str, str], out_path: Path) -> None:
 
 
 def verify_checksums(checksums_path: Path) -> tuple[bool, list[str]]:
-    """Verify files against previously saved SHA-256 checksums.
+    """Vérifie les fichiers par rapport aux checksums SHA-256 précédemment sauvegardés.
 
-    Tries ``<checksums_path>.json`` first, then ``.sha256``.
+    Essaie ``<checksums_path>.json`` en premier, puis ``.sha256``.
 
     Returns:
-        (ok, errors): ok=True if all files pass; errors lists failures.
+        (ok, errors): ok=True si tous les fichiers sont valides ; errors liste les échecs.
     """
     checksums_path = Path(checksums_path)
     json_path = checksums_path.with_suffix(".json")
@@ -90,7 +90,7 @@ def verify_checksums(checksums_path: Path) -> tuple[bool, list[str]]:
     for file_path, expected in checksums.items():
         p = Path(file_path)
         if expected == "MISSING":
-            # Was already missing when checksums were generated — skip
+            # Était déjà absent lors de la génération des checksums — ignorer
             errors.append(f"SKIP (was missing at generation): {file_path}")
             continue
         if not p.exists():
