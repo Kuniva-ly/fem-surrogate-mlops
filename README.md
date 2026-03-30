@@ -1,9 +1,9 @@
 # Surrogate Stress Platform
 
-Pipeline ML local pour prédire la contrainte et le déplacement maximal de plaques sous traction,
-à partir de simulations FEM (FEniCS) ou d'un proxy analytique rapide.
+Local ML pipeline to predict maximum stress and displacement of traction plates,
+from FEM simulations (FEniCS) or a fast analytical proxy.
 
-Géométries supportées : `with_hole` · `without_hole` · `with_hole_moving`
+Supported geometries: `with_hole` · `without_hole` · `with_hole_moving`
 
 ---
 
@@ -15,14 +15,14 @@ data/raw/            →  build-features  →  data/processed/{train,val,test}.p
 data/processed/      →  train           →  artifacts/models/lgbm_surrogate/<version>/
 artifacts/models/    →  evaluate        →  eval_metrics.json + eval_metrics.csv
                      →  predict         →  JSON { predictions: {...} }
-                     →  verify-artifacts→  intégrité SHA-256 vérifiée
+                     →  verify-artifacts→  SHA-256 integrity verified
 ```
 
-Toutes les commandes lisent `configs/training.yaml` pour leurs paramètres.
+All commands read `configs/training.yaml` for their parameters.
 
 ---
 
-## Prérequis
+## Prerequisites
 
 ```powershell
 python -m venv .venv
@@ -32,22 +32,22 @@ python -m venv .venv
 
 ---
 
-## Quick start — pipeline complet
+## Quick start — full pipeline
 
-### 1. (Optionnel) Générer des données FEM
+### 1. (Optional) Generate FEM data
 
 ```powershell
-# Avec Docker + FEniCS
+# With Docker + FEniCS
 docker compose up -d
 docker compose exec fenics python -m src.simulations.traction_plate_with_hole `
     --n 5000 --seed 42 --out data/raw/sim_v1 --backend fenics
 
-# Sans Docker — proxy analytique rapide
+# Without Docker — fast analytical proxy
 .venv\Scripts\python -m src.simulations.traction_plate_without_hole `
     --n 1000 --seed 42 --out data/raw/sim_v1_without_hole --backend proxy
 ```
 
-### 2. Valider les données brutes
+### 2. Validate raw data
 
 ```powershell
 .venv\Scripts\python -m src.processing.validate --input data/raw/sim_v1
@@ -59,32 +59,32 @@ docker compose exec fenics python -m src.simulations.traction_plate_with_hole `
 .venv\Scripts\python -m src.cli build-features --input data/raw
 ```
 
-Lit `configs/training.yaml` pour seed, ratios et stratégie de split.
-Produit `data/processed/{train,val,test}.parquet` et `data/features/advanced/`.
+Reads `configs/training.yaml` for seed, ratios, and split strategy.
+Produces `data/processed/{train,val,test}.parquet` and `data/features/advanced/`.
 
-### 4. Entraîner le modèle avancé
+### 4. Train the advanced model
 
 ```powershell
 .venv\Scripts\python -m src.cli train
 ```
 
-- LightGBM séparé par cible (displacement + von Mises)
-- Targets en log10 pour uniformiser les 4–6 décades
-- Recherche Optuna (60 essais par défaut, configurable)
-- Contraintes de monotonicité physiques
-- Sauvegarde dans le registre `artifacts/models/lgbm_surrogate/<version>/`
-- Génère `manifest.json` (timestamp, git commit, fingerprint dataset)
-- Génère `checksums.sha256` + `checksums.json`
+- Separate LightGBM per target (displacement + von Mises)
+- Targets in log10 to normalise the 4–6 decades range
+- Optuna search (60 trials by default, configurable)
+- Physics monotonicity constraints
+- Saves to the registry `artifacts/models/lgbm_surrogate/<version>/`
+- Generates `manifest.json` (timestamp, git commit, dataset fingerprint)
+- Generates `checksums.sha256` + `checksums.json`
 
-### 5. Évaluer
+### 5. Evaluate
 
 ```powershell
 .venv\Scripts\python -m src.cli evaluate
 ```
 
-Produit `eval_metrics.json` et `eval_metrics.csv` dans le répertoire de la version.
+Produces `eval_metrics.json` and `eval_metrics.csv` in the version directory.
 
-### 6. Prédire un cas unique
+### 6. Predict a single case
 
 ```powershell
 .venv\Scripts\python -m src.cli predict `
@@ -97,60 +97,60 @@ Produit `eval_metrics.json` et `eval_metrics.csv` dans le répertoire de la vers
   }'
 ```
 
-Les features dérivées sont calculées automatiquement si absentes de l'entrée.
+Derived features are computed automatically if absent from the input.
 
-### 7. Vérifier l'intégrité des artefacts
+### 7. Verify artifact integrity
 
 ```powershell
 .venv\Scripts\python -m src.cli verify-artifacts
 ```
 
-Vérifie les SHA-256 de tous les fichiers de la dernière version enregistrée.
+Verifies the SHA-256 checksums of all files in the latest registered version.
 
 ---
 
-## Raccourcis Makefile
+## Makefile shortcuts
 
 ```powershell
 make build-features    # feature engineering
-make train             # entraînement complet
-make evaluate          # évaluation
-make predict           # inférence (cas exemple)
-make verify-artifacts  # intégrité SHA-256
-make test              # 61 tests unitaires
-make lint              # vérification syntaxe
+make train             # full training
+make evaluate          # evaluation
+make predict           # inference (example case)
+make verify-artifacts  # SHA-256 integrity check
+make test              # 61 unit tests
+make lint              # syntax check
 ```
 
 ---
 
 ## Configuration
 
-Tous les paramètres runtime sont dans `configs/training.yaml` :
+All runtime parameters are in `configs/training.yaml`:
 
 ```yaml
 features:
   seed: 42
   train_ratio: 0.70
   val_ratio: 0.15
-  split_strategy: hash   # hash (déterministe) | random
+  split_strategy: hash   # hash (deterministic) | random
 
 training:
   random_state: 42
   cv_folds: 5
-  n_trials: 60           # essais Optuna par cible (0 = désactiver)
+  n_trials: 60           # Optuna trials per target (0 = disable)
 
 artifacts:
   registry_dir: artifacts/models
   model_name: lgbm_surrogate
 ```
 
-Surcharger via CLI (`--n-trials 0`, `--random-state 99`) ou via la variable d'environnement `CONFIG_PATH`.
+Override via CLI (`--n-trials 0`, `--random-state 99`) or via the `CONFIG_PATH` environment variable.
 
 ---
 
-## Registre de modèles
+## Model registry
 
-Chaque entraînement crée une version horodatée :
+Each training run creates a timestamped version:
 
 ```
 artifacts/models/lgbm_surrogate/
@@ -158,11 +158,11 @@ artifacts/models/lgbm_surrogate/
         lgbm_max_displacement_m.joblib
         lgbm_max_von_mises_pa.joblib
         advanced_metrics.csv
-        advanced_metrics.json     ← métriques imbriquées par cible/split
-        manifest.json             ← timestamp, git commit, SHA-256 dataset, versions packages
+        advanced_metrics.json     ← nested metrics by target/split
+        manifest.json             ← timestamp, git commit, dataset SHA-256, package versions
         checksums.sha256
         checksums.json
-    latest.txt                    ← pointe vers la dernière version
+    latest.txt                    ← points to the latest version
 ```
 
 ---
@@ -174,18 +174,18 @@ artifacts/models/lgbm_surrogate/
 # Ran 61 tests — OK
 ```
 
-Couverture :
-- `test_config.py` — chargement et validation YAML
-- `test_features.py` — formules physiques, splits, schéma
-- `test_registry.py` — versionnement, copie, roundtrip modèle
-- `test_integrity.py` — SHA-256, détection de falsification
-- `test_smoke.py` — pipeline E2E complet + reproductibilité
+Coverage:
+- `test_config.py` — YAML loading and validation
+- `test_features.py` — physics formulas, splits, schema
+- `test_registry.py` — versioning, copy, model roundtrip
+- `test_integrity.py` — SHA-256, tamper detection
+- `test_smoke.py` — full E2E pipeline + reproducibility
 
 ---
 
-## Inférence avec le modèle existant
+## Inference with the existing model
 
-Pour utiliser les modèles déjà entraînés dans `data/models/advanced/` :
+To use the already-trained models in `data/models/advanced/`:
 
 ```powershell
 .venv\Scripts\python -m src.cli predict `
@@ -193,7 +193,7 @@ Pour utiliser les modèles déjà entraînés dans `data/models/advanced/` :
   --case-json '{...}'
 ```
 
-Ou avec l'ancien script de prédiction baseline :
+Or with the legacy baseline prediction script:
 
 ```powershell
 .venv\Scripts\python -m src.inference.predict_baseline `
@@ -203,7 +203,7 @@ Ou avec l'ancien script de prédiction baseline :
 
 ---
 
-## MLflow (optionnel)
+## MLflow (optional)
 
 ```powershell
 $env:MLFLOW_S3_ENDPOINT_URL = "http://localhost:9000"
@@ -218,10 +218,10 @@ $env:AWS_DEFAULT_REGION     = "us-east-1"
 
 ---
 
-## Contrat de données
+## Data contract
 
-Voir [docs/data_contract.md](docs/data_contract.md).
+See [docs/data_contract.md](docs/data_contract.md).
 
-## Vue d'ensemble des scripts
+## Scripts overview
 
-Voir [docs/scripts_overview.md](docs/scripts_overview.md).
+See [docs/scripts_overview.md](docs/scripts_overview.md).

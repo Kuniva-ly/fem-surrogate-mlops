@@ -1,7 +1,7 @@
-"""Chargeur de modèle singleton pour l'API Surrogate FEM.
+"""Singleton model loader for the FEM Surrogate API.
 
-Charge les deux modèles cibles une seule fois au démarrage et les met en cache en mémoire.
-Sûr pour les requêtes concurrentes (les artefacts joblib sont en lecture seule après chargement).
+Loads both target models once at startup and caches them in memory.
+Safe for concurrent requests (joblib artifacts are read-only after loading).
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ class LoadedModel:
 
 @dataclass
 class ModelBundle:
-    """Conteneur pour tous les modèles chargés et les métadonnées partagées."""
+    """Container for all loaded models and shared metadata."""
     version: str
     model_dir: Path
     models: dict[str, LoadedModel] = field(default_factory=dict)
@@ -45,10 +45,10 @@ _bundle: Optional[ModelBundle] = None
 
 
 def load_models(model_dir: Path | str | None = None) -> ModelBundle:
-    """Charge les deux modèles surrogate depuis *model_dir*.
+    """Load both surrogate models from *model_dir*.
 
-    Utilise la dernière version enregistrée si model_dir n'est pas fourni.
-    Lève RuntimeError si aucun modèle ne peut être localisé.
+    Uses the latest registered version if model_dir is not provided.
+    Raises RuntimeError if no model can be located.
     """
     global _bundle
 
@@ -89,17 +89,17 @@ def load_models(model_dir: Path | str | None = None) -> ModelBundle:
 
 
 def get_bundle() -> Optional[ModelBundle]:
-    """Retourne le bundle actuellement chargé (None si pas encore chargé)."""
+    """Return the currently loaded bundle (None if not yet loaded)."""
     return _bundle
 
 
 def _resolve_model_dir() -> Path:
-    """Résout le répertoire du modèle depuis la variable d'env ou le pointeur latest du registre."""
+    """Resolve the model directory from the env variable or the registry latest pointer."""
     env_path = os.environ.get("MODEL_DIR")
     if env_path:
         return Path(env_path)
 
-    # Essayer le registre
+    # Try the registry
     registry_dir = Path(os.environ.get("REGISTRY_DIR", "artifacts/models"))
     model_name   = os.environ.get("MODEL_NAME", "lgbm_surrogate")
     latest_file  = registry_dir / model_name / "latest.txt"

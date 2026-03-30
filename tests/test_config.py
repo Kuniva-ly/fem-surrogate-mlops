@@ -1,4 +1,4 @@
-"""Tests pour le chargeur de configuration YAML (src/config.py)."""
+"""Tests for the YAML configuration loader (src/config.py)."""
 import tempfile
 import textwrap
 import unittest
@@ -16,7 +16,7 @@ from src.config import (
 
 
 class TestDefaultConfig(unittest.TestCase):
-    """load_config() avec le vrai fichier configs/training.yaml."""
+    """load_config() with the real configs/training.yaml file."""
 
     def test_loads_default_config(self) -> None:
         cfg = load_config()
@@ -51,7 +51,7 @@ class TestDefaultConfig(unittest.TestCase):
 
 
 class TestConfigValidation(unittest.TestCase):
-    """La validation rejette les valeurs invalides avec des messages clairs."""
+    """Validation rejects invalid values with clear messages."""
 
     def _write_yaml(self, content: str) -> Path:
         tmp = tempfile.NamedTemporaryFile(
@@ -122,7 +122,7 @@ class TestConfigFromEnvVar(unittest.TestCase):
     def test_env_var_override(self) -> None:
         import os
         cfg_default = load_config()
-        # Si le défaut se charge, le chemin via variable d'env fonctionne aussi car c'est le même fichier
+        # If the default loads, the env-var path also works because it points to the same file
         env_path = str(Path("configs/training.yaml"))
         os.environ["CONFIG_PATH"] = env_path
         try:

@@ -1,4 +1,4 @@
-"""Schémas Pydantic de requête / réponse pour l'API Surrogate FEM."""
+"""Pydantic request / response schemas for the FEM Surrogate API."""
 from __future__ import annotations
 
 from typing import Literal, Optional
@@ -6,53 +6,53 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-# ── Requête ───────────────────────────────────────────────────────────────────
+# ── Request ───────────────────────────────────────────────────────────────────
 
 class PredictionRequest(BaseModel):
-    """Paramètres d'entrée pour une prédiction surrogate FEM unique.
+    """Input parameters for a single FEM surrogate prediction.
 
-    Vous pouvez fournir :
-    - Uniquement les paramètres physiques bruts (le feature engineering est appliqué automatiquement), ou
-    - Des features pré-calculées correspondant au vecteur feature_cols du modèle.
+    You may provide:
+    - Only the raw physical parameters (feature engineering is applied automatically), or
+    - Pre-computed features matching the model's feature_cols vector.
 
-    Champs minimaux requis pour le calcul automatique :
+    Minimum required fields for automatic computation:
         geometry_type, length_m, height_m, young_modulus_pa,
         poisson_ratio, traction_pa, material_category, dimension_category
     """
 
-    # Géométrie
+    # Geometry
     geometry_type: Literal["with_hole", "without_hole", "with_hole_moving"] = Field(
-        ..., description="Variante de géométrie de la plaque"
+        ..., description="Plate geometry variant"
     )
-    length_m: float = Field(..., gt=0, description="Longueur de la plaque en mètres (> 0)")
-    height_m: float = Field(..., gt=0, description="Hauteur de la plaque en mètres (> 0)")
+    length_m: float = Field(..., gt=0, description="Plate length in metres (> 0)")
+    height_m: float = Field(..., gt=0, description="Plate height in metres (> 0)")
 
-    # Matériau
-    young_modulus_pa: float = Field(..., gt=0, description="Module de Young en Pa")
-    poisson_ratio: float = Field(..., gt=0, lt=0.5, description="Coefficient de Poisson dans (0, 0.5)")
-    traction_pa: float = Field(..., ge=0, description="Contrainte de traction appliquée en Pa")
+    # Material
+    young_modulus_pa: float = Field(..., gt=0, description="Young's modulus in Pa")
+    poisson_ratio: float = Field(..., gt=0, lt=0.5, description="Poisson ratio in (0, 0.5)")
+    traction_pa: float = Field(..., ge=0, description="Applied traction stress in Pa")
 
-    # Labels catégoriels (utilisés pour l'encodage du modèle)
-    material_category: str = Field(..., min_length=1, description="ex. 'steel', 'aluminum', 'titanium'")
-    dimension_category: str = Field(..., min_length=1, description="ex. 'small', 'medium', 'large'")
+    # Categorical labels (used for model encoding)
+    material_category: str = Field(..., min_length=1, description="e.g. 'steel', 'aluminum', 'titanium'")
+    dimension_category: str = Field(..., min_length=1, description="e.g. 'small', 'medium', 'large'")
 
-    # Paramètres optionnels du trou
+    # Optional hole parameters
     hole_radius_ratio: Optional[float] = Field(
         None, gt=0, lt=0.5,
-        description="Rayon du trou en fraction de min(L, H) — requis pour les géométries with_hole"
+        description="Hole radius as a fraction of min(L, H) — required for with_hole geometries"
     )
     hole_cx_ratio: Optional[float] = Field(
         None, gt=0, lt=1,
-        description="Position x du centre du trou en fraction de la longueur de plaque — requis pour with_hole_moving"
+        description="Hole centre x position as a fraction of plate length — required for with_hole_moving"
     )
     hole_cy_ratio: Optional[float] = Field(
         None, gt=0, lt=1,
-        description="Position y du centre du trou en fraction de la hauteur de plaque — requis pour with_hole_moving"
+        description="Hole centre y position as a fraction of plate height — required for with_hole_moving"
     )
 
-    # Paramètres maillage (utilisés par le feature engineering pour compatibilité ; pas des features modèle)
-    mesh_nx: int = Field(120, ge=8, description="Divisions du maillage selon x")
-    mesh_ny: int = Field(24, ge=4, description="Divisions du maillage selon y")
+    # Mesh parameters (used by feature engineering for compatibility; not model features)
+    mesh_nx: int = Field(120, ge=8, description="Mesh divisions along x")
+    mesh_ny: int = Field(24, ge=4, description="Mesh divisions along y")
 
     @field_validator("material_category", "dimension_category")
     @classmethod
@@ -75,17 +75,17 @@ class PredictionRequest(BaseModel):
         return self
 
 
-# ── Réponse ───────────────────────────────────────────────────────────────────
+# ── Response ──────────────────────────────────────────────────────────────────
 
 class PredictionResult(BaseModel):
-    max_displacement_m: float = Field(..., description="Déplacement maximum prédit en mètres")
-    max_von_mises_pa: float = Field(..., description="Contrainte von Mises maximale prédite en Pa")
+    max_displacement_m: float = Field(..., description="Predicted maximum displacement in metres")
+    max_von_mises_pa: float = Field(..., description="Predicted maximum von Mises stress in Pa")
 
 
 class PredictionResponse(BaseModel):
-    model_version: str = Field(..., description="Version du modèle utilisée pour l'inférence")
+    model_version: str = Field(..., description="Model version used for inference")
     predictions: PredictionResult
-    input_summary: dict = Field(..., description="Écho des paramètres d'entrée principaux")
+    input_summary: dict = Field(..., description="Echo of the main input parameters")
 
 
 class HealthResponse(BaseModel):

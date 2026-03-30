@@ -1,22 +1,22 @@
-"""Protocole d'évaluation figé pour les modèles surrogate FEM.
+"""Frozen evaluation protocol for FEM surrogate models.
 
-Tous les modèles sont évalués avec le même ensemble de métriques et la même
-politique de split, assurant la comparabilité des résultats entre les runs et versions.
+All models are evaluated with the same set of metrics and the same split policy,
+ensuring comparability of results across runs and versions.
 
-Métriques (calculées dans l'espace log et l'espace original) :
-    r2_log    — R² sur log10(cible)             [objectif d'optimisation]
-    rmse_log  — RMSE sur log10(cible)
-    mae_log   — MAE sur log10(cible)
-    r2_orig   — R² sur les valeurs brutes        [interprétation pratique]
-    rmse_orig — RMSE sur les valeurs brutes
-    mape      — Erreur absolue moyenne en pourcentage sur les valeurs brutes
+Metrics (computed in log space and original space):
+    r2_log    — R² on log10(target)             [optimisation objective]
+    rmse_log  — RMSE on log10(target)
+    mae_log   — MAE on log10(target)
+    r2_orig   — R² on raw values                [practical interpretation]
+    rmse_orig — RMSE on raw values
+    mape      — Mean absolute percentage error on raw values
 
-Fichiers de sortie :
-    <prefix>_metrics.json   — JSON imbriqué {cible: {split: {métrique: valeur}}}
-    <prefix>_metrics.csv    — tableau tidy (cible, split, métrique...)
+Output files:
+    <prefix>_metrics.json   — nested JSON {target: {split: {metric: value}}}
+    <prefix>_metrics.csv    — tidy table (target, split, metric...)
 
-Utilisation
------------
+Usage
+-----
     from src.evaluation import compute_metrics, build_metrics_df, save_metrics
 
     m = compute_metrics(y_true_log, y_pred_log, y_true_orig)
@@ -34,26 +34,26 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 _EPS = 1e-12
 
-# Clés de métriques ordonnées canoniquement — ordre stable sur toutes les sorties.
+# Canonically ordered metric keys — stable order across all outputs.
 METRIC_KEYS = ("r2_log", "rmse_log", "mae_log", "r2_orig", "rmse_orig", "mape")
 
 
-# ── Calcul des métriques de base ──────────────────────────────────────────────
+# ── Core metric computation ───────────────────────────────────────────────────
 
 def compute_metrics(
     y_true_log: np.ndarray,
     y_pred_log: np.ndarray,
     y_true_orig: np.ndarray,
 ) -> dict[str, float]:
-    """Calcule les métriques d'évaluation canoniques.
+    """Compute canonical evaluation metrics.
 
     Args:
-        y_true_log:  Vérité terrain dans l'espace log10.
-        y_pred_log:  Prédictions du modèle dans l'espace log10.
-        y_true_orig: Vérité terrain dans l'espace physique original.
+        y_true_log:  Ground truth in log10 space.
+        y_pred_log:  Model predictions in log10 space.
+        y_true_orig: Ground truth in original physical space.
 
     Returns:
-        Dict avec les clés : r2_log, rmse_log, mae_log, r2_orig, rmse_orig, mape.
+        Dict with keys: r2_log, rmse_log, mae_log, r2_orig, rmse_orig, mape.
     """
     y_pred_orig = 10.0 ** y_pred_log
     return {
@@ -68,18 +68,18 @@ def compute_metrics(
     }
 
 
-# ── Utilitaires DataFrame ─────────────────────────────────────────────────────
+# ── DataFrame utilities ───────────────────────────────────────────────────────
 
 def build_metrics_df(
     all_metrics: dict[str, dict[str, dict[str, float]]],
 ) -> pd.DataFrame:
-    """Convertit le dict de métriques imbriqué en un DataFrame tidy.
+    """Convert nested metrics dict to a tidy DataFrame.
 
     Args:
-        all_metrics: ``{cible: {split: {clé_métrique: valeur}}}``
+        all_metrics: ``{target: {split: {metric_key: value}}}``
 
     Returns:
-        DataFrame avec les colonnes : target, split, r2_log, rmse_log, ...
+        DataFrame with columns: target, split, r2_log, rmse_log, ...
     """
     rows = []
     for target, splits in all_metrics.items():
@@ -88,19 +88,19 @@ def build_metrics_df(
     return pd.DataFrame(rows)
 
 
-# ── Persistance ───────────────────────────────────────────────────────────────
+# ── Persistence ───────────────────────────────────────────────────────────────
 
 def save_metrics(
     metrics_df: pd.DataFrame,
     out_dir: Path,
     prefix: str = "advanced",
 ) -> tuple[Path, Path]:
-    """Sauvegarde les métriques aux formats JSON et CSV.
+    """Save metrics in JSON and CSV formats.
 
     Args:
-        metrics_df: DataFrame tidy de :func:`build_metrics_df`.
-        out_dir:    Répertoire de sortie.
-        prefix:     Préfixe de fichier (défaut ``advanced``).
+        metrics_df: Tidy DataFrame from :func:`build_metrics_df`.
+        out_dir:    Output directory.
+        prefix:     File prefix (default ``advanced``).
 
     Returns:
         ``(json_path, csv_path)``
@@ -111,7 +111,7 @@ def save_metrics(
     json_path = out_dir / f"{prefix}_metrics.json"
     csv_path  = out_dir / f"{prefix}_metrics.csv"
 
-    # JSON imbriqué : {cible: {split: {métrique: valeur}}}
+    # Nested JSON: {target: {split: {metric: value}}}
     nested: dict = {}
     for _, row in metrics_df.iterrows():
         t, s = row["target"], row["split"]
@@ -120,7 +120,7 @@ def save_metrics(
         }
     json_path.write_text(json.dumps(nested, indent=2), encoding="utf-8")
 
-    # CSV tidy
+    # Tidy CSV
     metrics_df.to_csv(csv_path, index=False)
 
     print(f"Metrics JSON : {json_path}")
@@ -128,10 +128,10 @@ def save_metrics(
     return json_path, csv_path
 
 
-# ── Affichage console ─────────────────────────────────────────────────────────
+# ── Console output ────────────────────────────────────────────────────────────
 
 def print_metrics_table(metrics_df: pd.DataFrame) -> None:
-    """Affiche un tableau de métriques formaté sur stdout."""
+    """Print a formatted metrics table to stdout."""
     print("\n" + "=" * 84)
     print("EVALUATION RESULTS")
     print("=" * 84)

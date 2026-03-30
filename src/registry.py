@@ -1,10 +1,10 @@
-"""Registre local simple de modèles.
+"""Simple local model registry.
 
-Structure des répertoires
--------------------------
+Directory structure
+-------------------
     artifacts/models/
         <model_name>/
-            <version>/          ex. v20260310_143022/
+            <version>/          e.g. v20260310_143022/
                 *.joblib
                 feature_columns.txt
                 training_config.yaml
@@ -13,12 +13,12 @@ Structure des répertoires
                 manifest.json
                 checksums.sha256
                 checksums.json
-            latest.txt          contient le nom du dernier répertoire de version
+            latest.txt          contains the name of the latest version directory
 
-Format de version : ``v{AAAAMMJJ}_{HHMMSS}`` (UTC).
+Version format: ``v{YYYYMMDD}_{HHMMSS}`` (UTC).
 
-Utilisation
------------
+Usage
+-----
     from src.registry import ModelRegistry
 
     reg = ModelRegistry(Path("artifacts/models"), "lgbm_surrogate")
@@ -37,19 +37,19 @@ _VERSION_FMT = "%Y%m%d_%H%M%S"
 
 
 def make_version(ts: datetime | None = None) -> str:
-    """Génère une chaîne de version basée sur un horodatage (UTC)."""
+    """Generate a timestamp-based version string (UTC)."""
     ts = ts or datetime.now(timezone.utc)
     return f"v{ts.strftime(_VERSION_FMT)}"
 
 
 class ModelRegistry:
-    """Registre de modèles sur le système de fichiers avec stockage d'artefacts versionné."""
+    """Filesystem model registry with versioned artifact storage."""
 
     def __init__(self, registry_dir: Path, model_name: str) -> None:
         self.root = Path(registry_dir) / model_name
         self.model_name = model_name
 
-    # ── Enregistrement ────────────────────────────────────────────────────────
+    # ── Registration ──────────────────────────────────────────────────────────
 
     def register(
         self,
@@ -57,12 +57,12 @@ class ModelRegistry:
         version: str | None = None,
         metrics: dict | None = None,
     ) -> tuple[str, Path]:
-        """Copie tous les fichiers de *source_dir* dans un nouvel emplacement versionné.
+        """Copy all files from *source_dir* into a new versioned location.
 
         Args:
-            source_dir: Répertoire contenant les artefacts entraînés.
-            version:    Chaîne de version à utiliser (défaut : horodatage UTC).
-            metrics:    Dict de métriques optionnel sauvegardé en ``metrics.json``.
+            source_dir: Directory containing trained artifacts.
+            version:    Version string to use (default: UTC timestamp).
+            metrics:    Optional metrics dict saved as ``metrics.json``.
 
         Returns:
             ``(version_string, registry_path)``
@@ -82,21 +82,21 @@ class ModelRegistry:
                 encoding="utf-8",
             )
 
-        # Mettre à jour le pointeur "latest"
+        # Update the "latest" pointer
         (self.root / "latest.txt").write_text(version, encoding="utf-8")
 
         print(f"[registry] Registered {self.model_name}  version={version}  -> {dest}")
         return version, dest
 
-    # ── Requêtes ──────────────────────────────────────────────────────────────
+    # ── Queries ───────────────────────────────────────────────────────────────
 
     def latest_version(self) -> str | None:
-        """Retourne la dernière chaîne de version enregistrée, ou None."""
+        """Return the latest registered version string, or None."""
         p = self.root / "latest.txt"
         return p.read_text(encoding="utf-8").strip() if p.exists() else None
 
     def latest_path(self) -> Path | None:
-        """Retourne le répertoire de la dernière version, ou None."""
+        """Return the latest version directory, or None."""
         v = self.latest_version()
         if v is None:
             return None
@@ -104,7 +104,7 @@ class ModelRegistry:
         return p if p.exists() else None
 
     def list_versions(self) -> list[str]:
-        """Retourne tous les répertoires de version enregistrés, triés chronologiquement."""
+        """Return all registered version directories, sorted chronologically."""
         if not self.root.exists():
             return []
         return sorted(
@@ -113,7 +113,7 @@ class ModelRegistry:
         )
 
     def get_version_path(self, version: str) -> Path:
-        """Retourne le chemin pour *version*, lève FileNotFoundError si absent."""
+        """Return the path for *version*, raise FileNotFoundError if absent."""
         p = self.root / version
         if not p.exists():
             raise FileNotFoundError(
@@ -122,7 +122,7 @@ class ModelRegistry:
         return p
 
     def load_metrics(self, version: str | None = None) -> dict:
-        """Charge le fichier metrics.json pour *version* (dernière version par défaut)."""
+        """Load the metrics.json file for *version* (latest version by default)."""
         v = version or self.latest_version()
         if v is None:
             raise RuntimeError("No registered version found.")

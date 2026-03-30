@@ -1,16 +1,15 @@
-"""Chargeur de configuration YAML avec validation.
+"""YAML configuration loader with validation.
 
-Utilisation
------------
+Usage
+-----
     from src.config import load_config
 
-    cfg = load_config()            # lit configs/training.yaml
-    cfg = load_config("my.yaml")   # chemin explicite
-    # ou définir la variable d'env :  CONFIG_PATH=my.yaml
+    cfg = load_config()            # reads configs/training.yaml
+    cfg = load_config("my.yaml")   # explicit path
+    # or set the env variable:  CONFIG_PATH=my.yaml
 
-Tous les paramètres du pipeline ont des valeurs par défaut raisonnables,
-le fichier de configuration est donc optionnel pour les scripts rapides,
-mais requis pour les runs de production reproductibles.
+All pipeline parameters have sensible defaults, so the config file is optional
+for quick scripts but required for reproducible production runs.
 """
 from __future__ import annotations
 
@@ -27,7 +26,7 @@ except ImportError as exc:
 _DEFAULT_CONFIG = Path("configs/training.yaml")
 
 
-# ── Dataclasses de section ────────────────────────────────────────────────────
+# ── Section dataclasses ───────────────────────────────────────────────────────
 
 @dataclass
 class DataConfig:
@@ -114,22 +113,22 @@ class PipelineConfig:
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
 
 
-# ── Chargeur ─────────────────────────────────────────────────────────────────
+# ── Loader ───────────────────────────────────────────────────────────────────
 
 def load_config(path: str | Path | None = None) -> PipelineConfig:
-    """Charge et valide la configuration YAML du pipeline.
+    """Load and validate the pipeline YAML configuration.
 
     Args:
-        path: Chemin vers le fichier de configuration YAML.
-              Par défaut : configs/training.yaml ou la variable CONFIG_PATH.
+        path: Path to the YAML configuration file.
+              Defaults to configs/training.yaml or the CONFIG_PATH variable.
 
     Returns:
-        PipelineConfig validé.
+        Validated PipelineConfig.
 
     Raises:
-        FileNotFoundError: Le fichier de configuration n'existe pas.
-        ValueError: La configuration contient des valeurs invalides.
-        yaml.YAMLError: Le fichier de configuration n'est pas un YAML valide.
+        FileNotFoundError: The configuration file does not exist.
+        ValueError: The configuration contains invalid values.
+        yaml.YAMLError: The configuration file is not valid YAML.
     """
     if path is None:
         path = Path(os.environ.get("CONFIG_PATH", str(_DEFAULT_CONFIG)))
@@ -137,16 +136,16 @@ def load_config(path: str | Path | None = None) -> PipelineConfig:
 
     if not path.exists():
         raise FileNotFoundError(
-            f"Fichier de configuration introuvable : {path}\n"
-            f"Conseil : copiez configs/training.yaml pour démarrer, "
-            f"ou définissez la variable CONFIG_PATH."
+            f"Configuration file not found: {path}\n"
+            f"Hint: copy configs/training.yaml to get started, "
+            f"or set the CONFIG_PATH environment variable."
         )
 
     with path.open("r", encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
 
     if not isinstance(raw, dict):
-        raise ValueError(f"Le fichier de configuration doit être un mapping YAML, obtenu {type(raw).__name__} : {path}")
+        raise ValueError(f"Configuration file must be a YAML mapping, got {type(raw).__name__}: {path}")
 
     try:
         return PipelineConfig(
@@ -157,4 +156,4 @@ def load_config(path: str | Path | None = None) -> PipelineConfig:
             evaluation=EvaluationConfig(**raw.get("evaluation", {})),
         )
     except TypeError as exc:
-        raise ValueError(f"La configuration contient une clé inconnue : {exc}") from exc
+        raise ValueError(f"Configuration contains an unknown key: {exc}") from exc

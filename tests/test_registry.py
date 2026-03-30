@@ -1,11 +1,11 @@
-"""Tests pour le registre de modèles (src/registry.py).
+"""Tests for the model registry (src/registry.py).
 
-Vérifie :
-  - Création de version
-  - Enregistrement d'artefacts (copie)
-  - Pointeur latest
-  - Listing des versions
-  - Round-trip charger après sauvegarder pour un vrai modèle
+Verifies:
+  - Version creation
+  - Artifact registration (copy)
+  - Latest pointer
+  - Version listing
+  - Save → registry → load round-trip for a real model
 """
 import json
 import tempfile
@@ -26,7 +26,7 @@ class TestMakeVersion(unittest.TestCase):
 
     def test_format_length(self) -> None:
         v = make_version()
-        # "v" + AAAAMMJJ + "_" + HHMMSS = 1 + 8 + 1 + 6 = 16
+        # "v" + YYYYMMDD + "_" + HHMMSS = 1 + 8 + 1 + 6 = 16
         self.assertEqual(len(v), 16)
 
     def test_two_calls_differ(self) -> None:
@@ -49,7 +49,7 @@ class TestModelRegistry(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def _create_artifacts(self) -> Path:
-        """Crée un petit répertoire temporaire avec de faux artefacts."""
+        """Create a small temporary directory with fake artifacts."""
         src = Path(self._tmpdir.name) / "artifacts"
         src.mkdir(exist_ok=True)
         (src / "model.joblib").write_bytes(b"fake_model_bytes")
@@ -118,7 +118,7 @@ class TestModelRegistry(unittest.TestCase):
 
 
 class TestModelSaveLoadRoundtrip(unittest.TestCase):
-    """Vérifie qu'un vrai modèle sklearn survit au cycle joblib sauvegarde → registre → chargement."""
+    """Verify that a real sklearn model survives the joblib save → registry → load cycle."""
 
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -130,23 +130,23 @@ class TestModelSaveLoadRoundtrip(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def test_model_roundtrip(self) -> None:
-        # Entraîner un modèle trivial
+        # Train a trivial model
         model = DummyRegressor(strategy="mean")
         X = np.array([[1.0], [2.0], [3.0]])
         y = np.array([10.0, 20.0, 30.0])
         model.fit(X, y)
         pred_before = model.predict(X)
 
-        # Sauvegarder le bundle d'artefacts
+        # Save the artifact bundle
         artifact = {"model": model, "feature_cols": ["feat_a"], "encoder": None}
         model_path = self.src_dir / "lgbm_max_displacement_m.joblib"
         joblib.dump(artifact, model_path)
 
-        # Enregistrer
+        # Register
         registry = ModelRegistry(self.registry_dir, "test_model")
         _, reg_path = registry.register(self.src_dir, version="v20260310_120000")
 
-        # Charger depuis le registre
+        # Load from the registry
         loaded = joblib.load(reg_path / "lgbm_max_displacement_m.joblib")
         pred_after = loaded["model"].predict(X)
         np.testing.assert_array_equal(pred_before, pred_after)

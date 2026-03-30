@@ -1,14 +1,14 @@
-"""Pipeline d'ingénierie des features pour le surrogate ML FEM.
+"""Feature engineering pipeline for the FEM surrogate ML.
 
-Modifications par rapport à l'original :
-- Suppression des lignes orphelines : source with_hole mais hole_radius_ratio non enregistré
-  (10 000 runs FEniCS de sim_v1/date=2026-02-10 où la colonne hole_radius_ratio
-  était absente ; la remplir avec 0 corrompait toutes les features de trou).
-- Ajout de features physiques :
-    epsilon, delta_theory, Kt_theory, sigma_net, ligaments, eccentricity, espace log
-- Suppression des features de maillage constantes (mesh_nx = 120, mesh_ny = 24 pour toutes
-  les lignes, variance nulle, elles n'introduisaient que des artefacts de formule proxy).
-- Correction de la valeur de remplissage hole_cx/cy : utiliser 0.5 (centre de la plaque) et non 0.0.
+Changes from original:
+- Orphan row removal: with_hole source but hole_radius_ratio not recorded
+  (10,000 FEniCS runs from sim_v1/date=2026-02-10 where the hole_radius_ratio
+  column was absent; filling it with 0 corrupted all hole features).
+- Added physics-informed features:
+    epsilon, delta_theory, Kt_theory, sigma_net, ligaments, eccentricity, log space
+- Removed constant mesh features (mesh_nx = 120, mesh_ny = 24 for all rows,
+  zero variance, they only introduced proxy formula artefacts).
+- Fixed hole_cx/cy fill value: use 0.5 (plate centre) not 0.0.
 """
 import argparse
 import hashlib
@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# ── Constantes ────────────────────────────────────────────────────────────────
+# ── Constants ─────────────────────────────────────────────────────────────────
 TARGET_COLS    = ["max_displacement_m", "max_von_mises_pa"]
 BASE_DROP_COLS = ["simulation_id", "timestamp", "solver_name", "solver_version", "data_version"]
 REQUIRED_COLS  = {
@@ -31,14 +31,14 @@ REQUIRED_COLS  = {
 OPTIONAL_HOLE_COLS = ["hole_radius_ratio", "hole_cx_ratio", "hole_cy_ratio"]
 GEOMETRY_TYPES     = ("with_hole", "without_hole", "with_hole_moving")
 
-# Colonnes de maillage qui sont constantes dans le jeu de données actuel (120×24 pour chaque ligne).
-# Les conserver n'ajoute que du bruit ; elles sont exclues de l'ensemble de features du modèle.
+# Mesh columns that are constant in the current dataset (120×24 for every row).
+# Keeping them only adds noise; they are excluded from the model feature set.
 MESH_COLS = ["mesh_nx", "mesh_ny"]
 
 _EPS = 1e-12
 
 
-# ── E/S ───────────────────────────────────────────────────────────────────────
+# ── I/O ───────────────────────────────────────────────────────────────────────
 def _read_raw(input_dir: Path) -> pd.DataFrame:
     files = sorted(input_dir.rglob("*.parquet"))
     if not files:
@@ -46,19 +46,19 @@ def _read_raw(input_dir: Path) -> pd.DataFrame:
     return pd.concat((pd.read_parquet(p) for p in files), ignore_index=True)
 
 
-# ── Qualité des données ───────────────────────────────────────────────────────
+# ── Data quality ──────────────────────────────────────────────────────────────
 def _drop_ambiguous_geometry(df: pd.DataFrame, keep_ambiguous_as_without_hole: bool = False) -> pd.DataFrame:
-    """Supprime les lignes dont la géométrie ne peut pas être déterminée.
+    """Drop rows whose geometry cannot be determined.
 
-    Une ligne est ambiguë quand :
-      - geometry_type est NaN (non étiqueté explicitement), ET
-      - hole_radius_ratio est NaN (pas de signal de taille de trou), ET
-      - hole_cx_ratio / hole_cy_ratio sont NaN (pas de signal de position).
+    A row is ambiguous when:
+      - geometry_type is NaN (not explicitly labelled), AND
+      - hole_radius_ratio is NaN (no hole size signal), AND
+      - hole_cx_ratio / hole_cy_ratio are NaN (no position signal).
 
-    Ce sont typiquement des runs FEniCS des premiers lots sim_v1
-    sauvegardés avant que hole_radius_ratio soit inclus dans le schéma de sortie.
-    Les traiter comme des plaques simples (fill=0) est physiquement incorrect car
-    le solveur INCLUAIT bien un trou — le paramètre n'a juste jamais été persisté.
+    These are typically FEniCS runs from early sim_v1 batches
+    saved before hole_radius_ratio was included in the output schema.
+    Treating them as plain plates (fill=0) is physically incorrect because
+    the solver DID include a hole — the parameter was simply never persisted.
     """
     has_geometry_type = df["geometry_type"].notna() if "geometry_type" in df.columns else pd.Series(False, index=df.index)
     has_r  = (pd.to_numeric(df.get("hole_radius_ratio", pd.Series(np.nan, index=df.index)), errors="coerce").notna())
@@ -88,20 +88,20 @@ def _drop_ambiguous_geometry(df: pd.DataFrame, keep_ambiguous_as_without_hole: b
     return df.loc[has_signal].copy()
 
 
-# ── Ingénierie des features ───────────────────────────────────────────────────
+# ── Feature engineering ───────────────────────────────────────────────────────
 def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.DataFrame:
-    """Calcule les features ML physiques à partir des colonnes de simulation brutes.
+    """Compute physics-informed ML features from raw simulation columns.
 
-    Entrées attendues
-    -----------------
-    Obligatoires : colonnes listées dans REQUIRED_COLS (sans les cibles si require_targets=False).
-    Optionnelles : hole_radius_ratio, hole_cx_ratio, hole_cy_ratio, geometry_type.
+    Expected inputs
+    ---------------
+    Required: columns listed in REQUIRED_COLS (minus targets if require_targets=False).
+    Optional: hole_radius_ratio, hole_cx_ratio, hole_cy_ratio, geometry_type.
 
-    Sortie
+    Output
     ------
-    Le dataframe d'entrée enrichi de colonnes de features dérivées.
-    Les colonnes de maillage (mesh_nx, mesh_ny) ne sont PAS supprimées ici — elles transitent
-    vers les fichiers parquet — mais _feature_columns() les exclut du modèle.
+    Input dataframe enriched with derived feature columns.
+    Mesh columns (mesh_nx, mesh_ny) are NOT dropped here — they pass through
+    to the parquet files — but _feature_columns() excludes them from the model.
     """
     required_cols = set(REQUIRED_COLS)
     if not require_targets:
@@ -112,13 +112,13 @@ def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.Data
 
     out = df.copy()
 
-    # ── Colonnes optionnelles de trou ────────────────────────────────────────
+    # ── Optional hole columns ─────────────────────────────────────────────────
     for col in OPTIONAL_HOLE_COLS:
         if col not in out.columns:
             out[col] = pd.NA
         out[col] = pd.to_numeric(out[col], errors="coerce")
 
-    # ── Inférence du type de géométrie ───────────────────────────────────────
+    # ── Geometry type inference ───────────────────────────────────────────────
     if "geometry_type" not in out.columns:
         out["geometry_type"] = pd.NA
     out["geometry_type"] = out["geometry_type"].astype("string").str.strip()
@@ -132,17 +132,17 @@ def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.Data
     inferred.loc[moving_mask] = "with_hole_moving"
     out.loc[invalid_geometry, "geometry_type"] = inferred.loc[invalid_geometry]
 
-    # Indicateurs binaires
+    # Binary flags
     out["has_hole"]        = hole_mask.astype(int)
     out["has_moving_hole"] = moving_mask.astype(int)
 
-    # ── Remplissage des valeurs par défaut des trous APRÈS inférence de géométrie ──
-    # hole_cx/cy par défaut = 0.5 (centre de la plaque), PAS 0 (coin).
+    # ── Hole default fill values AFTER geometry inference ────────────────────────
+    # hole_cx/cy default = 0.5 (plate centre), NOT 0 (corner).
     out["hole_radius_ratio"] = out["hole_radius_ratio"].fillna(0.0)
     out["hole_cx_ratio"]     = out["hole_cx_ratio"].fillna(0.5)
     out["hole_cy_ratio"]     = out["hole_cy_ratio"].fillna(0.5)
 
-    # ── Géométrie brute ──────────────────────────────────────────────────────
+    # ── Raw geometry ──────────────────────────────────────────────────────────
     L   = out["length_m"]
     H   = out["height_m"]
     E   = out["young_modulus_pa"]
@@ -155,40 +155,40 @@ def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.Data
     out["area_m2"]      = L * H
     out["aspect_ratio"] = L / (H + _EPS)
 
-    # ── Dimensions absolues du trou ──────────────────────────────────────────
-    # rayon en mètres = ratio × min(L, H)
+    # ── Absolute hole dimensions ──────────────────────────────────────────────
+    # radius in metres = ratio × min(L, H)
     radius_abs = r * pd.concat([L, H], axis=1).min(axis=1)
     out["radius_abs"] = radius_abs
 
-    # Rapport diamètre du trou / hauteur de plaque (entrée Kt, notation Peterson d/W)
+    # Hole diameter / plate height ratio (Kt input, Peterson d/W notation)
     d_over_W = (2.0 * radius_abs / (H + _EPS)).clip(0.0, 0.95)
     out["d_over_W"] = d_over_W
 
-    # ── Concentration de contrainte théorique (formule de Peterson largeur finie) ──
-    # Valide pour un trou centré ; pour les trous excentriques, la correction de ligament
-    # ci-dessous capture l'amplification supplémentaire.
-    # Kt = 3 quand d/W → 0 (plaque infinie) ; Kt → 1 sans trou.
+    # ── Theoretical stress concentration (Peterson finite-width formula) ─────────
+    # Valid for a centred hole; for eccentric holes, the ligament correction
+    # below captures the additional amplification.
+    # Kt = 3 when d/W → 0 (infinite plate); Kt → 1 with no hole.
     Kt_hole = (3.0 - 3.13 * d_over_W + 3.66 * d_over_W**2 - 1.53 * d_over_W**3).clip(1.0, 10.0)
-    # Pour les plaques simples, pas de trou → Kt = 1.
+    # For plain plates with no hole → Kt = 1.
     out["Kt_theory"] = np.where(out["has_hole"] == 1, Kt_hole, 1.0)
 
-    # ── Contrainte de section nette ──────────────────────────────────────────
-    # Section nette = fraction de la section transversale non obstruée par le trou.
+    # ── Net section stress ────────────────────────────────────────────────────
+    # Net section = fraction of the cross-section not blocked by the hole.
     net_section_ratio = (1.0 - d_over_W).clip(1e-3, 1.0)
     out["net_section_ratio"] = net_section_ratio
     out["sigma_net"]         = sig / (net_section_ratio + _EPS)      # Pa
 
-    # ── Déformation élastique et déplacement théorique ───────────────────────
-    # epsilon = σ / E  (déformation d'ingénierie, sans dimension)
-    # delta_theory = ε × L  (allongement axial théorique, mètres)
-    # C'est le meilleur prédicteur unique de max_displacement_m (r=0.96 en log).
+    # ── Elastic strain and theoretical displacement ────────────────────────────
+    # epsilon = σ / E  (engineering strain, dimensionless)
+    # delta_theory = ε × L  (theoretical axial elongation, metres)
+    # This is the single best predictor of max_displacement_m (r=0.96 in log space).
     out["epsilon"]       = sig / (E + _EPS)
     out["delta_theory"]  = out["epsilon"] * L                          # m
     out["biaxial_factor"] = 1.0 - nu**2                                # plane-stress
 
-    # ── Distances de ligament (normalisées, pour le régime à trou mobile) ────
-    # Les ligaments sont les largeurs de matière restantes autour du trou, exprimées
-    # comme fractions de la dimension de la plaque (du centre du trou au bord moins le rayon).
+    # ── Ligament distances (normalised, for the moving-hole regime) ───────────
+    # Ligaments are the remaining material widths around the hole, expressed
+    # as fractions of the plate dimension (from hole centre to edge minus radius).
     lig_left   = (cx       - r).clip(lower=0.0)
     lig_right  = (1.0 - cx - r).clip(lower=0.0)
     lig_bottom = (cy       - r).clip(lower=0.0)
@@ -200,22 +200,22 @@ def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.Data
     out["lig_top"]    = lig_top
     out["lig_min"]    = pd.concat([lig_left, lig_right, lig_bottom, lig_top], axis=1).min(axis=1)
 
-    # Ratio de proximité du bord : grande valeur → trou très proche du bord → pic de contrainte
+    # Edge proximity ratio: large value → hole very close to edge → stress peak
     out["edge_ratio"] = r / (out["lig_min"] + _EPS)
 
-    # ── Excentricité (trou mobile uniquement) ────────────────────────────────
-    # Distance du centre du trou au centre de la plaque, normalisée à [0, 0.5]
+    # ── Eccentricity (moving hole only) ──────────────────────────────────────
+    # Distance from hole centre to plate centre, normalised to [0, 0.5]
     out["eccentricity_x"] = (cx - 0.5).abs()
     out["eccentricity_y"] = (cy - 0.5).abs()
     out["eccentricity"]   = np.sqrt(out["eccentricity_x"]**2 + out["eccentricity_y"]**2)
 
-    # ── Proxy de contrainte combinée ─────────────────────────────────────────
-    # Kt × σ_net est une bonne approximation analytique du pic de von Mises.
+    # ── Combined stress proxy ──────────────────────────────────────────────────
+    # Kt × σ_net is a good analytical approximation of the von Mises peak.
     out["stress_amp_proxy"] = out["Kt_theory"] * out["sigma_net"]
 
-    # ── Features en espace log ───────────────────────────────────────────────
-    # Les modèles d'arbres divisent sur des seuils uniformes ; les transformations
-    # en espace log compriment les plages multi-décades de E et σ en une distribution plus uniforme.
+    # ── Log-space features ────────────────────────────────────────────────────
+    # Tree models split on uniform thresholds; log-space transforms
+    # compress the multi-decade ranges of E and σ into a more uniform distribution.
     out["logE"]           = np.log10(E.clip(lower=1e6))
     out["logS"]           = np.log10(sig.clip(lower=1e3))
     out["log_epsilon"]    = np.log10(out["epsilon"].clip(lower=_EPS))
@@ -225,7 +225,7 @@ def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.Data
     out["log_lig_min"]    = np.log10(out["lig_min"].clip(lower=_EPS))
     out["log_edge_ratio"] = np.log10(out["edge_ratio"].clip(lower=_EPS))
 
-    # ── Feature héritée conservée pour la compatibilité ascendante (= epsilon, renommage conservé) ──
+    # ── Legacy feature kept for backward compatibility (= epsilon, rename preserved) ──
     out["traction_over_E"] = out["epsilon"]   # σ/E = strain
 
     return out
@@ -236,7 +236,7 @@ def _engineer(df: pd.DataFrame, keep_ambiguous_as_without_hole: bool = False) ->
     return engineer_features(df)
 
 
-# ── Utilitaires de split ──────────────────────────────────────────────────────
+# ── Split utilities ───────────────────────────────────────────────────────────
 def _stable_bucket(simulation_id: str, seed: int) -> float:
     digest = hashlib.sha256(f"{simulation_id}|{seed}".encode("utf-8")).hexdigest()
     value  = int(digest[:16], 16)
@@ -290,12 +290,12 @@ def _split(
 
 
 def _feature_columns(df: pd.DataFrame) -> list[str]:
-    """Retourne les colonnes utilisables comme features ML (exclut les cibles, métadonnées, constantes de maillage)."""
+    """Return columns usable as ML features (excludes targets, metadata, constant mesh columns)."""
     exclude = set(TARGET_COLS) | set(BASE_DROP_COLS) | set(MESH_COLS)
     return [c for c in df.columns if c not in exclude]
 
 
-# ── Point d'entrée public ────────────────────────────────────────────────────
+# ── Public entry point ────────────────────────────────────────────────────────
 def build_features(
     input_dir: Path,
     out_dir: Path,
@@ -344,9 +344,9 @@ def build_features(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Construit les splits de features physiques depuis les données parquet de simulation brutes."
+        description="Build physics feature splits from raw simulation parquet data."
     )
-    parser.add_argument("--input", required=True, type=Path, help="Dossier d'entrée brut")
+    parser.add_argument("--input", required=True, type=Path, help="Raw input directory")
     parser.add_argument("--out-dir", type=Path, default=Path("data/processed"))
     parser.add_argument("--features-out-dir", type=Path, default=None)
     parser.add_argument("--train-ratio", type=float, default=0.7)
@@ -361,8 +361,8 @@ def main() -> None:
         "--keep-ambiguous-as-without-hole",
         action="store_true",
         help=(
-            "Conserver les lignes sans signal de géométrie et forcer geometry_type='without_hole' "
-            "au lieu de les supprimer."
+            "Keep rows with no geometry signal and force geometry_type='without_hole' "
+            "instead of dropping them."
         ),
     )
     args = parser.parse_args()

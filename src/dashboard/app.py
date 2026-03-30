@@ -1,19 +1,19 @@
-"""Tableau de bord Streamlit — Explorateur interactif du modèle Surrogate FEM.
+"""Streamlit dashboard — Interactive explorer for the FEM Surrogate model.
 
-Fonctionnalités
----------------
-- Barre latérale : formulaire de saisie pour la géométrie et les paramètres de charge
-- Bouton Prédire : appelle l'endpoint FastAPI /predict
-- Panneau de résultats : prédictions numériques + jauges colorées
-- Contexte physique : estimation analytique vs prédiction du modèle
-- Balayage de paramètres : graphe de sensibilité 1-D pour n'importe quel paramètre
-- Info modèle : version et nombre de features depuis l'endpoint /version
+Features
+--------
+- Sidebar: input form for geometry and loading parameters
+- Predict button: calls the FastAPI /predict endpoint
+- Results panel: numerical predictions + colour-coded gauges
+- Physical context: analytical estimate vs model prediction
+- Parameter sweep: 1-D sensitivity graph for any parameter
+- Model info: version and feature count from the /version endpoint
 
-Exécution locale (avec l'API sur :8000)
------------------------------------------
+Local execution (with the API running on :8000)
+------------------------------------------------
     streamlit run src/dashboard/app.py
 
-Ou définir la variable API_URL :
+Or set the API_URL variable:
     API_URL=http://api:8000 streamlit run src/dashboard/app.py
 """
 from __future__ import annotations
@@ -32,14 +32,14 @@ _API_AUTH = (
     os.environ.get("API_PASSWORD", "mdp123"),
 )
 
-# ── Configuration de la page ──────────────────────────────────────────────────
+# ── Page configuration ────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="FEM Surrogate Explorer",
     page_icon="⚙️",
     layout="wide",
 )
 
-# ── En-tête ───────────────────────────────────────────────────────────────────
+# ── Header ────────────────────────────────────────────────────────────────────
 st.title("⚙️ FEM Surrogate Model — Interactive Explorer")
 st.caption(
     "Predicts **maximum displacement** and **maximum von Mises stress** "
@@ -47,7 +47,7 @@ st.caption(
 )
 
 
-# ── Fonctions utilitaires API ─────────────────────────────────────────────────
+# ── API utility functions ─────────────────────────────────────────────────────
 
 def _get_version() -> dict:
     try:
@@ -83,7 +83,7 @@ def _predict(payload: dict) -> dict | None:
         return None
 
 
-# ── Barre latérale : statut de l'API ─────────────────────────────────────────
+# ── Sidebar: API status ───────────────────────────────────────────────────────
 with st.sidebar:
     st.subheader("🔌 API Status")
     health = _get_health()
@@ -103,7 +103,7 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Formulaire de saisie ──────────────────────────────────────────────────
+    # ── Input form ────────────────────────────────────────────────────────────
     st.subheader("🔧 Simulation Parameters")
 
     geometry_type = st.selectbox(
@@ -157,7 +157,7 @@ with st.sidebar:
     predict_btn = st.button("▶ Predict", type="primary", use_container_width=True)
 
 
-# ── Construction de la charge utile ──────────────────────────────────────────
+# ── Build request payload ─────────────────────────────────────────────────────
 payload: dict = {
     "geometry_type":    geometry_type,
     "length_m":         length_m,
@@ -178,9 +178,9 @@ if hole_cy_ratio is not None:
     payload["hole_cy_ratio"] = hole_cy_ratio
 
 
-# ── Référence analytique (physique) ───────────────────────────────────────────
+# ── Analytical reference (physics) ───────────────────────────────────────────
 def _analytical_estimate(p: dict) -> tuple[float, float]:
-    """Estimation rapide basée sur la physique pour vérification de cohérence."""
+    """Quick physics-based estimate for sanity checking."""
     E = p["young_modulus_pa"]
     sig = p["traction_pa"]
     L   = p["length_m"]
@@ -199,7 +199,7 @@ def _analytical_estimate(p: dict) -> tuple[float, float]:
     return delta, vm_estimate
 
 
-# ── Contenu principal ─────────────────────────────────────────────────────────
+# ── Main content ──────────────────────────────────────────────────────────────
 tab_predict, tab_sweep, tab_about = st.tabs(["🔮 Prediction", "📊 Parameter Sweep", "ℹ️ About"])
 
 with tab_predict:
@@ -239,7 +239,7 @@ with tab_predict:
                 ratio_v = vm / ana_vm if ana_vm > 0 else float("nan")
                 st.caption(f"Model / Analytical = {ratio_v:.3f}")
 
-            # Résumé physique
+            # Physics summary
             st.divider()
             st.subheader("Physics context")
             eps = payload["traction_pa"] / payload["young_modulus_pa"]
@@ -248,7 +248,7 @@ with tab_predict:
                 f"**Theoretical elongation** = ε×L = {eps * length_m:.4e} m"
             )
 
-            # Afficher l'écho des paramètres d'entrée
+            # Show echo of input parameters
             with st.expander("Input parameters sent to API"):
                 st.json(result["input_summary"])
     else:
@@ -324,29 +324,29 @@ with tab_sweep:
 
 with tab_about:
     st.markdown("""
-## À propos de ce tableau de bord
+## About this dashboard
 
-Cette interface Streamlit se connecte à l'**API FEM Surrogate** (FastAPI) pour prédire
-de manière interactive la réponse structurelle de plaques soumises à une traction.
+This Streamlit interface connects to the **FEM Surrogate API** (FastAPI) to interactively
+predict the structural response of traction-loaded plates.
 
-### Modèle
-- **Algorithme** : LightGBM avec recherche d'hyperparamètres Optuna
-- **Cibles** : max_displacement_m · max_von_mises_pa (toutes deux dans l'espace log₁₀)
-- **Features** : 42 features physiques (Peterson Kt, contrainte de section nette, distances de ligament, ...)
-- **Géométries** : with_hole · without_hole · with_hole_moving
+### Model
+- **Algorithm**: LightGBM with Optuna hyperparameter search
+- **Targets**: max_displacement_m · max_von_mises_pa (both in log₁₀ space)
+- **Features**: 42 physics-informed features (Peterson Kt, net section stress, ligament distances, ...)
+- **Geometries**: with_hole · without_hole · with_hole_moving
 
 ### Architecture
 ```
-Streamlit UI  ──►  FastAPI /predict  ──►  LightGBM model (chargé depuis le registre)
+Streamlit UI  ──►  FastAPI /predict  ──►  LightGBM model (loaded from registry)
                           │
                     /metrics  ──►  Prometheus  ──►  Grafana
 ```
 
-### Endpoints de l'API
-| Endpoint | Méthode | Description |
+### API Endpoints
+| Endpoint | Method | Description |
 |---|---|---|
-| `/health` | GET | Disponibilité + état du modèle |
-| `/version` | GET | Version API et modèle |
-| `/predict` | POST | Inférence sur un cas unique |
-| `/metrics` | GET | Métriques Prometheus |
+| `/health` | GET | Availability + model status |
+| `/version` | GET | API and model version |
+| `/predict` | POST | Inference on a single case |
+| `/metrics` | GET | Prometheus metrics |
 """)

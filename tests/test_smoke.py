@@ -1,11 +1,11 @@
-"""Test de fumée de bout en bout pour le pipeline ML.
+"""End-to-end smoke test for the ML pipeline.
 
-Utilise un petit jeu de données synthétique (~100 lignes) pour vérifier que le
-pipeline complet s'exécute sans erreur dans un répertoire temporaire :
+Uses a small synthetic dataset (~100 rows) to verify that the full pipeline
+runs without error in a temporary directory:
 
   engineer_features → split → train_advanced (n_trials=0) → predict
 
-Aucune donnée FEM réelle ni modèle pré-entraîné n'est requis.
+No real FEM data or pre-trained model is required.
 """
 import json
 import tempfile
@@ -21,7 +21,7 @@ from src.training.train_advanced import train_advanced
 
 
 def _make_synthetic_dataset(n: int = 120, seed: int = 42) -> pd.DataFrame:
-    """Génère un petit jeu de données de simulation synthétique."""
+    """Generate a small synthetic simulation dataset."""
     rng = np.random.default_rng(seed)
 
     length_m          = rng.uniform(0.5, 2.0, n)
@@ -31,7 +31,7 @@ def _make_synthetic_dataset(n: int = 120, seed: int = 42) -> pd.DataFrame:
     traction_pa       = rng.uniform(5e5, 2e6, n)
     hole_radius_ratio = rng.uniform(0.05, 0.20, n)
 
-    # Cibles proxy basées sur la physique (déterministes, sans FEM)
+    # Physics-based proxy targets (deterministic, no FEM)
     epsilon          = traction_pa / young_modulus_pa
     delta            = epsilon * length_m * rng.uniform(0.95, 1.05, n)
     d_over_W         = (2.0 * hole_radius_ratio * np.minimum(length_m, height_m)) / height_m
@@ -80,7 +80,7 @@ class TestEndToEndSmoke(unittest.TestCase):
         self.model_dir = self.base / "models"
         self.raw_dir.mkdir()
 
-        # Écrire les données brutes synthétiques en parquet
+        # Write synthetic raw data as parquet
         df = _make_synthetic_dataset(n=120, seed=42)
         df.to_parquet(self.raw_dir / "part-00000.parquet", index=False)
 
@@ -103,7 +103,7 @@ class TestEndToEndSmoke(unittest.TestCase):
         self.assertTrue((self.proc_dir / "feature_columns.txt").exists())
 
     def test_train_runs_no_optuna(self) -> None:
-        """L'entraînement avec n_trials=0 (ignorer Optuna) doit se terminer sans erreur."""
+        """Training with n_trials=0 (skip Optuna) must complete without error."""
         build_features(
             input_dir=self.raw_dir,
             out_dir=self.proc_dir,
@@ -125,7 +125,7 @@ class TestEndToEndSmoke(unittest.TestCase):
         self.assertTrue((self.model_dir / "advanced_metrics.csv").exists())
 
     def test_predict_smoke(self) -> None:
-        """Après l'entraînement, l'inférence sur un cas unique retourne des valeurs plausibles."""
+        """After training, inference on a single case returns plausible values."""
         import joblib
         from src.processing.build_features import engineer_features
         from src.training.train_advanced import CAT_COLS
@@ -208,7 +208,7 @@ class TestEndToEndSmoke(unittest.TestCase):
             self.assertIn(col, metrics.columns)
 
     def test_train_reproducibility(self) -> None:
-        """Même graine → métriques identiques sur les deux runs."""
+        """Same seed → identical metrics across two runs."""
         build_features(
             input_dir=self.raw_dir,
             out_dir=self.proc_dir,
