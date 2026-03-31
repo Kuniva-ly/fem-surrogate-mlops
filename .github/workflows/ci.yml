@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dev dependencies
+        run: pip install -r requirements/dev.txt
+
+      - name: Lint (py_compile)
+        run: |
+          python -m py_compile \
+            src/config.py \
+            src/registry.py \
+            src/evaluation.py \
+            src/cli.py \
+            src/api/main.py \
+            src/api/schemas.py \
+            src/api/model_loader.py \
+            src/utils/manifest.py \
+            src/utils/integrity.py \
+            src/simulations/traction_plate_with_hole.py \
+            src/simulations/traction_plate_without_hole.py \
+            src/simulations/traction_plate_moving_hole.py \
+            src/processing/validate.py \
+            src/processing/build_features.py \
+            src/training/train_advanced.py
+
+      - name: Run tests
+        # FEM simulations (generate/generate-*) are excluded from CI:
+        # they require FEniCS/Docker and run for hours.
+        # test_smoke.py uses synthetic proxy data only (no FEniCS).
+        run: python -m unittest discover -s tests -t . -p "test_*.py" -v
