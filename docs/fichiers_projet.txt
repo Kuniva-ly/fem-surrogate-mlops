@@ -204,8 +204,7 @@
   │  │   ├── build_features.py                                          │
   │  │   └── validate.py                                                │
   │  ├── training/           ← Entraîne les modèles ML                  │
-  │  │   ├── train_advanced.py                                          │
-  │  │   └── train_baseline.py                                          │
+  │  │   └── train_advanced.py                                          │
   │  ├── utils/              ← Outils transversaux                      │
   │  │   ├── manifest.py                                                │
   │  │   └── integrity.py                                               │
@@ -380,18 +379,6 @@
 │                          │  RÉSULTATS ATTENDUS :                            │
 │                          │   R²(log) > 0.99  → excellente précision         │
 │                          │   MAPE ~5%         → erreur de 5% en moyenne     │
-├──────────────────────────┼──────────────────────────────────────────────────┤
-│ src/training/            │ LE MODÈLE DE RÉFÉRENCE (baseline)                │
-│   train_baseline.py      │ Sert à mesurer SI LightGBM fait vraiment mieux.  │
-│                          │                                                  │
-│                          │  RandomForest = forêt d'arbres de décision       │
-│                          │  OneHotEncoder = transforme les catégories en    │
-│                          │                  colonnes 0/1                    │
-│                          │  5-fold CV = 5 validations croisées              │
-│                          │  DummyRegressor = modèle bête (prédit la moyenne)│
-│                          │                                                  │
-│                          │  HIÉRARCHIE :                                    │
-│                          │   Dummy < RandomForest < LightGBM (espéré)       │
 └──────────────────────────┴──────────────────────────────────────────────────┘
 
 ────────────────────────────────────────────────────────────────────────────────
