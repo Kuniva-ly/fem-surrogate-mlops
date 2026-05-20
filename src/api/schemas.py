@@ -3,12 +3,27 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+CAT_COLS: list[str] = ["geometry_type", "material_category", "dimension_category"]
 
 
 # ── Request ───────────────────────────────────────────────────────────────────
 
 class PredictionRequest(BaseModel):
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "geometry_type":      "with_hole",
+            "length_m":           0.2,
+            "height_m":           0.05,
+            "young_modulus_pa":   210000000000,
+            "poisson_ratio":      0.3,
+            "traction_pa":        50000000,
+            "material_category":  "steel",
+            "dimension_category": "small",
+            "hole_radius_ratio":  0.2,
+        }
+    })
     """Input parameters for a single FEM surrogate prediction.
 
     You may provide:

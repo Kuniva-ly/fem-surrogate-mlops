@@ -1,0 +1,196 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: FEM Surrogate Alerts
+    folder: FEM Alerts
+    interval: 1m
+    rules:
+
+      # ── API down ──────────────────────────────────────────────────────────
+      - uid: fem-api-down
+        title: API Down
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-fem
+            model:
+              expr: up{job="fem_api"}
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              refId: B
+              type: classic_conditions
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: "API FEM Surrogate est DOWN"
+          description: "Le service API (http://localhost:8000) ne répond plus à Prometheus depuis 1 minute."
+        labels:
+          severity: critical
+
+      # ── MLflow down ───────────────────────────────────────────────────────
+      - uid: fem-mlflow-down
+        title: MLflow Down
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-fem
+            model:
+              expr: up{job="mlflow"}
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              refId: B
+              type: classic_conditions
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: "MLflow est DOWN"
+          description: "Le serveur MLflow (http://localhost:5000) ne répond plus depuis 1 minute."
+        labels:
+          severity: critical
+
+      # ── Taux d'erreurs 5xx élevé ──────────────────────────────────────────
+      - uid: fem-api-high-errors
+        title: API High Error Rate
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-fem
+            model:
+              expr: rate(http_requests_total{job="fem_api",status=~"5.."}[5m])
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.05]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              refId: B
+              type: classic_conditions
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "Taux d'erreurs 5xx élevé sur l'API"
+          description: "Plus de 0.05 req/s en erreur 5xx sur les 5 dernières minutes."
+        labels:
+          severity: warning
+
+      # ── Latence élevée ────────────────────────────────────────────────────
+      - uid: fem-api-high-latency
+        title: API High Latency
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-fem
+            model:
+              expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{job="fem_api"}[5m]))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [2.0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              refId: B
+              type: classic_conditions
+        noDataState: OK
+        execErrState: Error
+        for: 3m
+        annotations:
+          summary: "Latence p99 élevée sur l'API"
+          description: "Le p99 de latence dépasse 2 secondes sur les 5 dernières minutes."
+        labels:
+          severity: warning

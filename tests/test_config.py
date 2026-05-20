@@ -1,8 +1,9 @@
 """Tests for the YAML configuration loader (src/config.py)."""
-import tempfile
+import os
 import textwrap
-import unittest
 from pathlib import Path
+
+import pytest
 
 from src.config import (
     ArtifactsConfig,
@@ -15,122 +16,125 @@ from src.config import (
 )
 
 
-class TestDefaultConfig(unittest.TestCase):
-    """load_config() with the real configs/training.yaml file."""
-
-    def test_loads_default_config(self) -> None:
-        cfg = load_config()
-        self.assertIsInstance(cfg, PipelineConfig)
-
-    def test_section_types(self) -> None:
-        cfg = load_config()
-        self.assertIsInstance(cfg.data, DataConfig)
-        self.assertIsInstance(cfg.features, FeaturesConfig)
-        self.assertIsInstance(cfg.training, TrainingConfig)
-        self.assertIsInstance(cfg.artifacts, ArtifactsConfig)
-        self.assertIsInstance(cfg.evaluation, EvaluationConfig)
-
-    def test_known_defaults(self) -> None:
-        cfg = load_config()
-        self.assertEqual(cfg.features.seed, 42)
-        self.assertEqual(cfg.features.split_strategy, "hash")
-        self.assertEqual(cfg.training.random_state, 42)
-        self.assertGreater(cfg.training.n_trials, 0)
-        self.assertGreaterEqual(cfg.training.cv_folds, 2)
-
-    def test_evaluation_metrics_not_empty(self) -> None:
-        cfg = load_config()
-        self.assertGreater(len(cfg.evaluation.metrics), 0)
-        self.assertIn("r2_log", cfg.evaluation.metrics)
-        self.assertIn("mape", cfg.evaluation.metrics)
-
-    def test_evaluation_splits_not_empty(self) -> None:
-        cfg = load_config()
-        self.assertIn("val", cfg.evaluation.splits)
-        self.assertIn("test", cfg.evaluation.splits)
+@pytest.fixture
+def write_yaml(tmp_path):
+    """Return a helper that writes a YAML snippet to a temp file."""
+    def _write(content: str) -> Path:
+        p = tmp_path / "config.yaml"
+        p.write_text(textwrap.dedent(content), encoding="utf-8")
+        return p
+    return _write
 
 
-class TestConfigValidation(unittest.TestCase):
-    """Validation rejects invalid values with clear messages."""
+# ── Default config (configs/training.yaml) ────────────────────────────────────
 
-    def _write_yaml(self, content: str) -> Path:
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
-        )
-        tmp.write(textwrap.dedent(content))
-        tmp.close()
-        return Path(tmp.name)
-
-    def test_train_ratio_out_of_range(self) -> None:
-        path = self._write_yaml("""
-            features:
-              train_ratio: 1.5
-              val_ratio: 0.15
-        """)
-        with self.assertRaises(ValueError):
-            load_config(path)
-
-    def test_split_ratios_sum_to_one(self) -> None:
-        path = self._write_yaml("""
-            features:
-              train_ratio: 0.7
-              val_ratio: 0.4
-        """)
-        with self.assertRaises(ValueError):
-            load_config(path)
-
-    def test_invalid_split_strategy(self) -> None:
-        path = self._write_yaml("""
-            features:
-              split_strategy: kfold
-        """)
-        with self.assertRaises(ValueError):
-            load_config(path)
-
-    def test_cv_folds_too_small(self) -> None:
-        path = self._write_yaml("""
-            training:
-              cv_folds: 1
-        """)
-        with self.assertRaises(ValueError):
-            load_config(path)
-
-    def test_unknown_metric(self) -> None:
-        path = self._write_yaml("""
-            evaluation:
-              metrics:
-                - r2_log
-                - not_a_real_metric
-        """)
-        with self.assertRaises(ValueError):
-            load_config(path)
-
-    def test_file_not_found(self) -> None:
-        with self.assertRaises(FileNotFoundError):
-            load_config("nonexistent_config_12345.yaml")
-
-    def test_unknown_key_raises(self) -> None:
-        path = self._write_yaml("""
-            training:
-              bogus_key: 999
-        """)
-        with self.assertRaises(ValueError):
-            load_config(path)
+def test_loads_default_config():
+    assert isinstance(load_config(), PipelineConfig)
 
 
-class TestConfigFromEnvVar(unittest.TestCase):
-    def test_env_var_override(self) -> None:
-        import os
-        cfg_default = load_config()
-        # If the default loads, the env-var path also works because it points to the same file
-        env_path = str(Path("configs/training.yaml"))
-        os.environ["CONFIG_PATH"] = env_path
-        try:
-            cfg_env = load_config()
-            self.assertEqual(cfg_default.features.seed, cfg_env.features.seed)
-        finally:
-            del os.environ["CONFIG_PATH"]
+def test_section_types():
+    cfg = load_config()
+    assert isinstance(cfg.data, DataConfig)
+    assert isinstance(cfg.features, FeaturesConfig)
+    assert isinstance(cfg.training, TrainingConfig)
+    assert isinstance(cfg.artifacts, ArtifactsConfig)
+    assert isinstance(cfg.evaluation, EvaluationConfig)
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_known_defaults():
+    cfg = load_config()
+    assert cfg.features.seed == 42
+    assert cfg.features.split_strategy == "hash"
+    assert cfg.training.random_state == 42
+    assert cfg.training.n_trials > 0
+    assert cfg.training.cv_folds >= 2
+
+
+def test_evaluation_metrics_not_empty():
+    cfg = load_config()
+    assert len(cfg.evaluation.metrics) > 0
+    assert "r2_log" in cfg.evaluation.metrics
+    assert "mape" in cfg.evaluation.metrics
+
+
+def test_evaluation_splits_not_empty():
+    cfg = load_config()
+    assert "val" in cfg.evaluation.splits
+    assert "test" in cfg.evaluation.splits
+
+
+# ── Validation rejects invalid values ─────────────────────────────────────────
+
+def test_train_ratio_out_of_range(write_yaml):
+    path = write_yaml("""
+        features:
+          train_ratio: 1.5
+          val_ratio: 0.15
+    """)
+    with pytest.raises(ValueError):
+        load_config(path)
+
+
+def test_split_ratios_sum_to_one(write_yaml):
+    path = write_yaml("""
+        features:
+          train_ratio: 0.7
+          val_ratio: 0.4
+    """)
+    with pytest.raises(ValueError):
+        load_config(path)
+
+
+def test_invalid_split_strategy(write_yaml):
+    path = write_yaml("""
+        features:
+          split_strategy: kfold
+    """)
+    with pytest.raises(ValueError):
+        load_config(path)
+
+
+def test_cv_folds_too_small(write_yaml):
+    path = write_yaml("""
+        training:
+          cv_folds: 1
+    """)
+    with pytest.raises(ValueError):
+        load_config(path)
+
+
+def test_unknown_metric(write_yaml):
+    path = write_yaml("""
+        evaluation:
+          metrics:
+            - r2_log
+            - not_a_real_metric
+    """)
+    with pytest.raises(ValueError):
+        load_config(path)
+
+
+def test_file_not_found():
+    with pytest.raises(FileNotFoundError):
+        load_config("nonexistent_config_12345.yaml")
+
+
+def test_unknown_key_raises(write_yaml):
+    path = write_yaml("""
+        training:
+          bogus_key: 999
+    """)
+    with pytest.raises(ValueError):
+        load_config(path)
+
+
+# ── Env-var override ──────────────────────────────────────────────────────────
+
+def test_env_var_override():
+    cfg_default = load_config()
+    os.environ["CONFIG_PATH"] = str(Path("configs/training.yaml"))
+    try:
+        cfg_env = load_config()
+        assert cfg_default.features.seed == cfg_env.features.seed
+    finally:
+        del os.environ["CONFIG_PATH"]

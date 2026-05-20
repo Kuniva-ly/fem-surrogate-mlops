@@ -1,9 +1,16 @@
-# Surrogate Stress Platform
+# FEM Surrogate Platform
 
-Local ML pipeline to predict maximum stress and displacement of traction plates,
-from FEM simulations (FEniCS) or a fast analytical proxy.
+[![CI](https://github.com/Kuniva-ly/fem-surrogate-mlops/actions/workflows/ci.yml/badge.svg)](https://github.com/Kuniva-ly/fem-surrogate-mlops/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
+[![LightGBM](https://img.shields.io/badge/model-LightGBM-brightgreen.svg)](https://lightgbm.readthedocs.io/)
+[![MLflow](https://img.shields.io/badge/tracking-MLflow%202.12-blue.svg)](https://mlflow.org/)
+[![Docker](https://img.shields.io/badge/docker-compose-2496ED.svg?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Supported geometries: `with_hole` · `without_hole` · `with_hole_moving`
+Plateforme ML de substitution pour simuler la réponse structurelle de plaques en traction.
+Prédit le **déplacement maximal** et la **contrainte de von Mises maximale** à partir de la géométrie et du chargement — en millisecondes au lieu de plusieurs minutes de calcul FEM.
+
+Géométries supportées : `with_hole` · `without_hole` · `with_hole_moving`
 
 ---
 

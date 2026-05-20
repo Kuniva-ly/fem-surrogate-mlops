@@ -70,6 +70,10 @@ def _cmd_train(args: argparse.Namespace) -> int:
     out_dir  = Path(args.out_dir)  if args.out_dir  else d.features_dir.parent / "models_run"
 
     # MLflow: enabled via --mlflow or the MLFLOW_TRACKING_URI environment variable
+    # mlflow_enabled = cfg.get("mlflow", {}).get("enabled", False)
+    # mlflow_uri     = args.mlflow_tracking_uri or cfg.get("mlflow", {}).get("tracking_uri")
+    # mlflow_exp     = args.mlflow_experiment   or cfg.get("mlflow", {}).get("experiment", "fem-surrogate")
+
     mlflow_enabled = args.mlflow or bool(os.environ.get("MLFLOW_TRACKING_URI"))
     mlflow_uri     = args.mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
     mlflow_exp     = args.mlflow_experiment or os.environ.get("MLFLOW_EXPERIMENT_NAME", "fem-surrogate")
@@ -83,7 +87,7 @@ def _cmd_train(args: argparse.Namespace) -> int:
         mlflow_enabled=mlflow_enabled,
         mlflow_tracking_uri=mlflow_uri,
         mlflow_experiment=mlflow_exp,
-        mlflow_run_name=args.mlflow_run_name if hasattr(args, "mlflow_run_name") else None,
+        mlflow_run_name=args.mlflow_run_name,
     )
 
     # ── Manifest ──────────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# ── Constants ─────────────────────────────────────────────────────────────────
+# Constants 
 TARGET_COLS    = ["max_displacement_m", "max_von_mises_pa"]
 BASE_DROP_COLS = ["simulation_id", "timestamp", "solver_name", "solver_version", "data_version"]
 REQUIRED_COLS  = {
@@ -38,7 +38,7 @@ MESH_COLS = ["mesh_nx", "mesh_ny"]
 _EPS = 1e-12
 
 
-# ── I/O ───────────────────────────────────────────────────────────────────────
+#  I/O 
 def _read_raw(input_dir: Path) -> pd.DataFrame:
     files = sorted(input_dir.rglob("*.parquet"))
     if not files:
@@ -46,7 +46,7 @@ def _read_raw(input_dir: Path) -> pd.DataFrame:
     return pd.concat((pd.read_parquet(p) for p in files), ignore_index=True)
 
 
-# ── Data quality ──────────────────────────────────────────────────────────────
+#  Data quality 
 def _drop_ambiguous_geometry(df: pd.DataFrame, keep_ambiguous_as_without_hole: bool = False) -> pd.DataFrame:
     """Drop rows whose geometry cannot be determined.
 
@@ -88,7 +88,7 @@ def _drop_ambiguous_geometry(df: pd.DataFrame, keep_ambiguous_as_without_hole: b
     return df.loc[has_signal].copy()
 
 
-# ── Feature engineering ───────────────────────────────────────────────────────
+#  Feature engineering 
 def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.DataFrame:
     """Compute physics-informed ML features from raw simulation columns.
 
@@ -112,13 +112,13 @@ def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.Data
 
     out = df.copy()
 
-    # ── Optional hole columns ─────────────────────────────────────────────────
+    #  Optional hole columns 
     for col in OPTIONAL_HOLE_COLS:
         if col not in out.columns:
             out[col] = pd.NA
         out[col] = pd.to_numeric(out[col], errors="coerce")
 
-    # ── Geometry type inference ───────────────────────────────────────────────
+    #  Geometry type inference 
     if "geometry_type" not in out.columns:
         out["geometry_type"] = pd.NA
     out["geometry_type"] = out["geometry_type"].astype("string").str.strip()
@@ -136,13 +136,13 @@ def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.Data
     out["has_hole"]        = hole_mask.astype(int)
     out["has_moving_hole"] = moving_mask.astype(int)
 
-    # ── Hole default fill values AFTER geometry inference ────────────────────────
+    #  Hole default fill values AFTER geometry inference 
     # hole_cx/cy default = 0.5 (plate centre), NOT 0 (corner).
     out["hole_radius_ratio"] = out["hole_radius_ratio"].fillna(0.0)
     out["hole_cx_ratio"]     = out["hole_cx_ratio"].fillna(0.5)
     out["hole_cy_ratio"]     = out["hole_cy_ratio"].fillna(0.5)
 
-    # ── Raw geometry ──────────────────────────────────────────────────────────
+    #  Raw geometry 
     L   = out["length_m"]
     H   = out["height_m"]
     E   = out["young_modulus_pa"]
@@ -155,7 +155,7 @@ def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.Data
     out["area_m2"]      = L * H
     out["aspect_ratio"] = L / (H + _EPS)
 
-    # ── Absolute hole dimensions ──────────────────────────────────────────────
+    # Absolute hole dimensions 
     # radius in metres = ratio × min(L, H)
     radius_abs = r * pd.concat([L, H], axis=1).min(axis=1)
     out["radius_abs"] = radius_abs
@@ -164,7 +164,7 @@ def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.Data
     d_over_W = (2.0 * radius_abs / (H + _EPS)).clip(0.0, 0.95)
     out["d_over_W"] = d_over_W
 
-    # ── Theoretical stress concentration (Peterson finite-width formula) ─────────
+    #  Theoretical stress concentration (Peterson finite-width formula) 
     # Valid for a centred hole; for eccentric holes, the ligament correction
     # below captures the additional amplification.
     # Kt = 3 when d/W → 0 (infinite plate); Kt → 1 with no hole.
@@ -172,13 +172,13 @@ def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.Data
     # For plain plates with no hole → Kt = 1.
     out["Kt_theory"] = np.where(out["has_hole"] == 1, Kt_hole, 1.0)
 
-    # ── Net section stress ────────────────────────────────────────────────────
+    #  Net section stress 
     # Net section = fraction of the cross-section not blocked by the hole.
     net_section_ratio = (1.0 - d_over_W).clip(1e-3, 1.0)
     out["net_section_ratio"] = net_section_ratio
     out["sigma_net"]         = sig / (net_section_ratio + _EPS)      # Pa
 
-    # ── Elastic strain and theoretical displacement ────────────────────────────
+    #  Elastic strain and theoretical displacement 
     # epsilon = σ / E  (engineering strain, dimensionless)
     # delta_theory = ε × L  (theoretical axial elongation, metres)
     # This is the single best predictor of max_displacement_m (r=0.96 in log space).
@@ -186,7 +186,7 @@ def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.Data
     out["delta_theory"]  = out["epsilon"] * L                          # m
     out["biaxial_factor"] = 1.0 - nu**2                                # plane-stress
 
-    # ── Ligament distances (normalised, for the moving-hole regime) ───────────
+    #  Ligament distances (normalised, for the moving-hole regime) 
     # Ligaments are the remaining material widths around the hole, expressed
     # as fractions of the plate dimension (from hole centre to edge minus radius).
     lig_left   = (cx       - r).clip(lower=0.0)
@@ -203,17 +203,17 @@ def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.Data
     # Edge proximity ratio: large value → hole very close to edge → stress peak
     out["edge_ratio"] = r / (out["lig_min"] + _EPS)
 
-    # ── Eccentricity (moving hole only) ──────────────────────────────────────
+    #  Eccentricity (moving hole only) 
     # Distance from hole centre to plate centre, normalised to [0, 0.5]
     out["eccentricity_x"] = (cx - 0.5).abs()
     out["eccentricity_y"] = (cy - 0.5).abs()
     out["eccentricity"]   = np.sqrt(out["eccentricity_x"]**2 + out["eccentricity_y"]**2)
 
-    # ── Combined stress proxy ──────────────────────────────────────────────────
+    #  Combined stress proxy 
     # Kt × σ_net is a good analytical approximation of the von Mises peak.
     out["stress_amp_proxy"] = out["Kt_theory"] * out["sigma_net"]
 
-    # ── Log-space features ────────────────────────────────────────────────────
+    #  Log-space features 
     # Tree models split on uniform thresholds; log-space transforms
     # compress the multi-decade ranges of E and σ into a more uniform distribution.
     out["logE"]           = np.log10(E.clip(lower=1e6))
@@ -236,7 +236,7 @@ def _engineer(df: pd.DataFrame, keep_ambiguous_as_without_hole: bool = False) ->
     return engineer_features(df)
 
 
-# ── Split utilities ───────────────────────────────────────────────────────────
+#  Split utilities 
 def _stable_bucket(simulation_id: str, seed: int) -> float:
     digest = hashlib.sha256(f"{simulation_id}|{seed}".encode("utf-8")).hexdigest()
     value  = int(digest[:16], 16)
@@ -295,7 +295,7 @@ def _feature_columns(df: pd.DataFrame) -> list[str]:
     return [c for c in df.columns if c not in exclude]
 
 
-# ── Public entry point ────────────────────────────────────────────────────────
+#  Public entry point 
 def build_features(
     input_dir: Path,
     out_dir: Path,

@@ -4,8 +4,7 @@ global:
   external_labels:
     project: fem-surrogate
 
-alerting:
-  alertmanagers: []
+# Alerting est géré par Grafana Unified Alerting — pas d'Alertmanager nécessaire.
 
 scrape_configs:
 
@@ -23,14 +22,13 @@ scrape_configs:
       - source_labels: [__address__]
         target_label: instance
 
-  # MLflow server (basic up-check; MLflow does not expose prom metrics natively)
+  # MLflow — /health retourne HTTP 200, suffit pour le metric up{job="mlflow"}
   - job_name: mlflow
     metrics_path: /health
     static_configs:
       - targets: [mlflow:5000]
-    # MLflow /health returns 200 OK text, not Prometheus format — use blackbox probe if needed
 
-  # MinIO metrics (exposed at /minio/v2/metrics/cluster by default)
+  # MinIO cluster metrics — auth désactivée via MINIO_PROMETHEUS_AUTH_TYPE=public
   - job_name: minio
     metrics_path: /minio/v2/metrics/cluster
     static_configs:

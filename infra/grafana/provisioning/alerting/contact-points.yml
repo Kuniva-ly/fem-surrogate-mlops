@@ -1,0 +1,19 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: slack-fem
+    receivers:
+      - uid: slack-fem-receiver
+        type: slack
+        settings:
+          url: ${SLACK_WEBHOOK_URL}
+          recipient: ${SLACK_CHANNEL:-#general}
+          title: "🚨 FEM Surrogate — {{ .CommonLabels.alertname }}"
+          text: |
+            {{ range .Alerts }}
+            *{{ .Annotations.summary }}*
+            {{ .Annotations.description }}
+            Sévérité : {{ .Labels.severity }}
+            {{ end }}
+        disableResolveMessage: false

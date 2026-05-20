@@ -50,7 +50,7 @@ lint:
 		src/training/train_advanced.py
 
 test:
-	$(PYTHON) -m unittest discover -s tests -t . -p "test_*.py" -v
+	$(PYTHON) -m pytest tests/ -v
 
 # ── Production ML pipeline ─────────────────────────────────────────────────────
 ## Feature engineering + train/val/test splitting

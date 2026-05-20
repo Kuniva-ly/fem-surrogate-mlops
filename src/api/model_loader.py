@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -94,12 +95,24 @@ def get_bundle() -> Optional[ModelBundle]:
 
 
 def _resolve_model_dir() -> Path:
-    """Resolve the model directory from the env variable or the registry latest pointer."""
+    """Resolve the model directory.
+
+    Priority:
+    1. MODEL_DIR env var (explicit override)
+    2. MLflow tracking server — downloads latest run artifacts from MinIO
+    3. Local registry latest.txt (local dev fallback)
+    """
     env_path = os.environ.get("MODEL_DIR")
     if env_path:
         return Path(env_path)
 
-    # Try the registry
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
+    if tracking_uri:
+        try:
+            return _download_from_mlflow(tracking_uri)
+        except Exception as exc:
+            logger.warning("MLflow download failed, falling back to local registry: %s", exc)
+
     registry_dir = Path(os.environ.get("REGISTRY_DIR", "artifacts/models"))
     model_name   = os.environ.get("MODEL_NAME", "lgbm_surrogate")
     latest_file  = registry_dir / model_name / "latest.txt"
@@ -109,5 +122,40 @@ def _resolve_model_dir() -> Path:
 
     raise RuntimeError(
         "Cannot locate model directory. "
-        "Set MODEL_DIR env var or ensure artifacts/models/lgbm_surrogate/latest.txt exists."
+        "Set MODEL_DIR, point MLFLOW_TRACKING_URI to a server with runs, "
+        "or ensure artifacts/models/lgbm_surrogate/latest.txt exists."
     )
+
+
+def _download_from_mlflow(tracking_uri: str) -> Path:
+    """Download the latest run's .joblib artifacts from MLflow/MinIO to a temp dir."""
+    import mlflow
+    from mlflow.tracking import MlflowClient
+
+    experiment_name = os.environ.get("MLFLOW_EXPERIMENT_NAME", "fem-surrogate")
+    run_id = os.environ.get("MLFLOW_RUN_ID")
+
+    client = MlflowClient(tracking_uri=tracking_uri)
+
+    if not run_id:
+        experiment = client.get_experiment_by_name(experiment_name)
+        if experiment is None:
+            raise RuntimeError(f"MLflow experiment '{experiment_name}' not found")
+        runs = client.search_runs(
+            experiment_ids=[experiment.experiment_id],
+            order_by=["start_time DESC"],
+            max_results=1,
+        )
+        if not runs:
+            raise RuntimeError(f"No runs found in experiment '{experiment_name}'")
+        run_id = runs[0].info.run_id
+
+    cache_root = Path(os.environ.get("MODEL_CACHE_DIR", tempfile.gettempdir())) / "fem_models"
+    dst = cache_root / run_id
+    if dst.exists():
+        logger.info("Using cached MLflow artifacts — run=%s @ %s", run_id, dst)
+        return dst
+    dst.mkdir(parents=True, exist_ok=True)
+    client.download_artifacts(run_id, ".", str(dst))
+    logger.info("Downloaded MLflow artifacts — run=%s → %s", run_id, dst)
+    return dst

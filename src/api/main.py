@@ -1,11 +1,11 @@
-"""FastAPI service layer for the FEM Surrogate model.
+"""FastAPI application factory for the FEM Surrogate API.
 
-Endpoints
----------
-GET  /health       Availability probe + model status
-GET  /version      API and model version information
-POST /predict      Surrogate inference on a single case
-GET  /metrics      Prometheus metrics (via prometheus-fastapi-instrumentator)
+Endpoints (mounted via routers)
+--------------------------------
+GET  /health       Availability probe + model status   (no auth)
+GET  /version      API and model version info           (auth required)
+POST /predict      Surrogate inference on a single case (auth required)
+GET  /metrics      Prometheus metrics (if installed)
 
 Configuration (environment variables)
 --------------------------------------
@@ -13,6 +13,8 @@ MODEL_DIR          Path to the model version directory (overrides registry)
 REGISTRY_DIR       Path to the registry root (default: artifacts/models)
 MODEL_NAME         Model name in the registry (default: lgbm_surrogate)
 API_LOG_LEVEL      Logging level (default: INFO)
+API_USERNAME       Basic-auth username (default: admin)
+API_PASSWORD       Basic-auth password (default: mdp123)
 
 Local execution
 ---------------
@@ -22,32 +24,14 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from contextlib import asynccontextmanager
-from typing import Any
 
-import numpy as np
-import pandas as pd
-import secrets
-
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-from src.api.model_loader import ModelBundle, get_bundle, load_models
-from src.api.schemas import (
-    HealthResponse,
-    PredictionRequest,
-    PredictionResponse,
-    PredictionResult,
-    VersionResponse,
-)
-from src.processing.build_features import engineer_features
-from src.training.train_advanced import CAT_COLS
-
-_EPS = 1e-12
-API_VERSION = "1.0.0"
+from src.api.model_loader import load_models
+from src.api.routers import ops, predict
 
 logging.basicConfig(
     level=os.environ.get("API_LOG_LEVEL", "INFO").upper(),
@@ -56,7 +40,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ── Lifecycle (startup / shutdown) ───────────────────────────────────────────
+# ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -66,13 +50,13 @@ async def lifespan(app: FastAPI):
         load_models(model_dir)
         logger.info("Models loaded successfully.")
     except Exception as exc:
+        # Start in degraded mode — /health will report the problem
         logger.error("Model loading failed: %s", exc)
-        # Do NOT raise — let the app start in degraded mode so /health can report the problem
     yield
     logger.info("Shutting down.")
 
 
-# ── Application ───────────────────────────────────────────────────────────────
+# ── Application factory ───────────────────────────────────────────────────────
 
 app = FastAPI(
     title="FEM Surrogate API",
@@ -80,138 +64,40 @@ app = FastAPI(
         "Surrogate ML model for FEM traction-plate simulations. "
         "Predicts max_displacement_m and max_von_mises_pa from plate geometry and loading."
     ),
-    version=API_VERSION,
+    version="1.0.0",
     lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[
+        "http://localhost:8501",   # Streamlit dashboard
+        "http://localhost:8000",   # API self (Swagger UI)
+        "http://dashboard:8501",   # Docker internal
+    ],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
-# Instrumentation Prometheus
+# ── Routers ───────────────────────────────────────────────────────────────────
+
+app.include_router(ops.router)
+app.include_router(predict.router)
+
+# ── Optional Prometheus instrumentation ───────────────────────────────────────
+
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
     Instrumentator().instrument(app).expose(app, endpoint="/metrics")
     logger.info("Prometheus instrumentation enabled at /metrics")
 except ImportError:
     logger.warning(
-        "prometheus-fastapi-instrumentator not installed — /metrics endpoint unavailable. "
-        "Install it with: pip install prometheus-fastapi-instrumentator"
+        "prometheus-fastapi-instrumentator not installed — /metrics unavailable. "
+        "Install with: pip install prometheus-fastapi-instrumentator"
     )
 
 
-# ── Authentication ────────────────────────────────────────────────────────────
-
-_security = HTTPBasic()
-_API_USER = os.environ.get("API_USERNAME", "admin")
-_API_PASS = os.environ.get("API_PASSWORD", "mdp123")
-
-
-def _require_auth(credentials: HTTPBasicCredentials = Depends(_security)) -> None:
-    ok = secrets.compare_digest(credentials.username, _API_USER) and \
-         secrets.compare_digest(credentials.password, _API_PASS)
-    if not ok:
-        raise HTTPException(status_code=401, detail="Unauthorized",
-                            headers={"WWW-Authenticate": "Basic"})
-
-
-# ── Utility functions ─────────────────────────────────────────────────────────
-
-def _infer(bundle: ModelBundle, request: PredictionRequest) -> dict[str, float]:
-    """Run inference for all loaded targets. Returns {target: value_in_original_space}."""
-    raw = request.model_dump()
-
-    # Build a single-row DataFrame and automatically compute features
-    case_df = pd.DataFrame([raw])
-    # simulation_id and timestamp are required by engineer_features for validation
-    # but dropped immediately after — fill with dummy values for API inference
-    case_df["simulation_id"] = "api-inference"
-    case_df["timestamp"] = pd.Timestamp.utcnow()
-    case_df = engineer_features(case_df, require_targets=False)
-
-    results: dict[str, float] = {}
-    for target, lm in bundle.models.items():
-        cat_present = [c for c in CAT_COLS if c in lm.feature_cols]
-        df = case_df.copy()
-        if lm.encoder is not None and cat_present:
-            df[cat_present] = lm.encoder.transform(df[cat_present].astype(str))
-
-        X = df[lm.feature_cols].astype(float)
-        y_pred_log = lm.model.predict(X)
-        results[target] = float(10.0 ** y_pred_log[0])
-
-    return results
-
-
-# ── Endpoints ─────────────────────────────────────────────────────────────────
-
-@app.get("/health", response_model=HealthResponse, tags=["ops"])
-async def health() -> HealthResponse:
-    bundle = get_bundle()
-    return HealthResponse(
-        status="ok" if bundle is not None else "degraded",
-        model_loaded=bundle is not None,
-        model_version=bundle.version if bundle else None,
-    )
-
-
-@app.get("/version", response_model=VersionResponse, tags=["ops"])
-async def version(_: None = Depends(_require_auth)) -> VersionResponse:
-    bundle = get_bundle()
-    return VersionResponse(
-        api_version=API_VERSION,
-        model_version=bundle.version if bundle else None,
-        model_name=os.environ.get("MODEL_NAME", "lgbm_surrogate"),
-        feature_count=bundle.feature_count if bundle else 0,
-    )
-
-
-@app.post("/predict", response_model=PredictionResponse, tags=["inference"])
-async def predict(request: PredictionRequest, _: None = Depends(_require_auth)) -> PredictionResponse:
-    bundle = get_bundle()
-    if bundle is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Model not loaded. Check /health for details.",
-        )
-
-    t0 = time.perf_counter()
-    try:
-        preds = _infer(bundle, request)
-    except KeyError as exc:
-        raise HTTPException(status_code=422, detail=f"Missing feature: {exc}") from exc
-    except Exception as exc:
-        logger.exception("Inference error: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Inference failed: {exc}") from exc
-
-    elapsed_ms = (time.perf_counter() - t0) * 1000
-    logger.info(
-        "predict | geometry=%s | disp=%.3e | vm=%.3e | %.1f ms",
-        request.geometry_type,
-        preds.get("max_displacement_m", float("nan")),
-        preds.get("max_von_mises_pa", float("nan")),
-        elapsed_ms,
-    )
-
-    return PredictionResponse(
-        model_version=bundle.version,
-        predictions=PredictionResult(
-            max_displacement_m=preds.get("max_displacement_m", float("nan")),
-            max_von_mises_pa=preds.get("max_von_mises_pa", float("nan")),
-        ),
-        input_summary={
-            "geometry_type":   request.geometry_type,
-            "length_m":        request.length_m,
-            "height_m":        request.height_m,
-            "young_modulus_pa": request.young_modulus_pa,
-            "traction_pa":     request.traction_pa,
-            "hole_radius_ratio": request.hole_radius_ratio,
-        },
-    )
-
+# ── Global error handler ──────────────────────────────────────────────────────
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:

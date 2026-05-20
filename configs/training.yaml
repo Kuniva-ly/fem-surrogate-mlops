@@ -34,3 +34,7 @@ evaluation:
   splits:
     - val
     - test
+
+# MLflow est configuré via variables d'environnement :
+#   MLFLOW_TRACKING_URI, MLFLOW_EXPERIMENT_NAME, MLFLOW_S3_ENDPOINT_URL
+# Passer --mlflow au CLI pour activer le logging.

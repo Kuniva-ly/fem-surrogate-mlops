@@ -134,7 +134,8 @@ with st.sidebar:
     poisson_ratio = st.slider("Poisson ratio", 0.20, 0.45, 0.30, 0.01)
 
     st.markdown("**Loading**")
-    traction_mpa = st.slider("Applied traction (MPa)", 0.1, 5.0, 1.5, 0.1)
+    traction_mpa = st.slider("Applied traction (MPa)", 0.1, 2.2, 1.5, 0.1,
+                             help="Max 2.2 MPa — upper bound of training data (steel)")
     traction_pa = traction_mpa * 1e6
 
     hole_radius_ratio = None
@@ -270,7 +271,7 @@ with tab_sweep:
     )
 
     _ranges = {
-        "traction_pa":      (1e5, 5e6, 12),
+        "traction_pa":      (2e5, 2.2e6, 12),
         "young_modulus_pa": (6e10, 2.5e11, 12),
         "hole_radius_ratio": (0.02, 0.45, 12),
         "length_m":         (0.3, 3.0, 12),
