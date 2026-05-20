@@ -57,10 +57,13 @@
   │  └──────────┘  └──────────┘  └──────────┘  └──────────┘           │
   │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐           │
   │  │Streamlit │  │Prometheus│  │ Grafana  │  │minio-    │           │
-  │  │(dashboard│  │(collecte │  │(graphes  │  │setup     │           │
-  │  │  :8501)  │  │métriques)│  │métriques)│  │(init auto│           │
-  │  │          │  │  :9090   │  │  :3000   │  │ MinIO)   │           │
+  │  │(dashboard│  │(collecte │  │(alertes  │  │setup     │           │
+  │  │  :8501)  │  │métriques)│  │+ graphes │  │(init auto│           │
+  │  │          │  │  :9090   │  │  :3000)  │  │ MinIO)   │           │
   │  └──────────┘  └──────────┘  └──────────┘  └──────────┘           │
+  │                                                                      │
+  │  Grafana envoie des alertes vers Slack via webhook                   │
+  │  (variables d'env SLACK_WEBHOOK_URL + SLACK_CHANNEL dans .env)      │
   └─────────────────────────────────────────────────────────────────────┘
 
 ================================================================================
@@ -207,9 +210,13 @@
   │  │   ├── manifest.py                                                │
   │  │   └── integrity.py                                               │
   │  ├── api/                ← API REST pour servir les prédictions      │
-  │  │   ├── main.py                                                    │
-  │  │   ├── schemas.py                                                 │
-  │  │   └── model_loader.py                                            │
+  │  │   ├── main.py         ← Application FastAPI (factory + middleware)│
+  │  │   ├── dependencies.py ← Auth HTTP Basic partagée (facteur commun)│
+  │  │   ├── schemas.py      ← Modèles Pydantic requête/réponse         │
+  │  │   ├── model_loader.py ← Chargement du modèle depuis le registre  │
+  │  │   └── routers/        ← Endpoints séparés par domaine            │
+  │  │       ├── ops.py      ← /, /health, /version                     │
+  │  │       └── predict.py  ← POST /predict                            │
   │  ├── dashboard/          ← Interface web Streamlit                   │
   │  │   └── app.py                                                     │
   │  └── simulations/        ← Génère les données FEM                   │
@@ -453,24 +460,85 @@
 ┌──────────────────────────┬──────────────────────────────────────────────────┐
 │ Fichier                  │ Rôle détaillé                                    │
 ├──────────────────────────┼──────────────────────────────────────────────────┤
-│ src/api/main.py          │ LE SERVEUR WEB. Définit les ENDPOINTS :          │
+│ src/api/main.py          │ FACTORY DE L'APPLICATION FastAPI.                │
+│                          │  Assemble les pièces au démarrage :              │
 │                          │                                                  │
-│                          │  GET  /health   → "Je suis vivant !" (monitoring)│
-│                          │  GET  /version  → Quelle version du modèle       │
-│                          │  POST /predict  → Envoi des inputs, retour       │
-│                          │                   des prédictions                │
-│                          │  GET  /metrics  → Stats pour Prometheus           │
-│                          │                   (nb requêtes, temps de réponse)│
+│                          │  Lifespan : charge les modèles au démarrage,     │
+│                          │  démarre en mode dégradé si le chargement échoue │
+│                          │  (l'API répond mais /health dit "degraded")      │
 │                          │                                                  │
-│                          │  Sécurité : HTTP Basic Auth (user + mot de passe)│
+│                          │  Middleware CORS : autorise les requêtes depuis  │
+│                          │  le dashboard Streamlit (:8501) et Swagger UI    │
+│                          │                                                  │
+│                          │  Monte les 2 routers :                           │
+│                          │   ops.router    → /, /health, /version           │
+│                          │   predict.router→ /predict                       │
+│                          │                                                  │
+│                          │  Expose /metrics pour Prometheus                 │
+│                          │  (si prometheus-fastapi-instrumentator installé) │
+│                          │                                                  │
+│                          │  Handler global d'erreurs : toute exception non  │
+│                          │  gérée retourne HTTP 500 propre au lieu de crash │
+├──────────────────────────┼──────────────────────────────────────────────────┤
+│ src/api/dependencies.py  │ GARDE D'AUTHENTIFICATION partagée.               │
+│                          │  Factorisée ici pour être réutilisée dans les    │
+│                          │  deux routers sans duplication de code.          │
+│                          │                                                  │
+│                          │  Utilise HTTPBasic (user + mot de passe) :       │
+│                          │   API_USERNAME  → lu depuis l'env (défaut: admin)│
+│                          │   API_PASSWORD  → lu depuis l'env (défaut: mdp123│
+│                          │  secrets.compare_digest → résistant aux attaques │
+│                          │  par timing (comparaison constante en temps)     │
+│                          │                                                  │
+│                          │  → Retourne 401 si les credentials sont mauvais  │
+├──────────────────────────┼──────────────────────────────────────────────────┤
+│ src/api/routers/ops.py   │ ROUTER OPÉRATIONNEL — endpoints de service :     │
+│                          │                                                  │
+│                          │  GET /         → Page HTML d'accueil avec        │
+│                          │    (no auth)      exemples curl pour les 3 types │
+│                          │                   de géométrie (with_hole,        │
+│                          │                   without_hole, with_hole_moving) │
+│                          │                   + status du modèle chargé      │
+│                          │                                                  │
+│                          │  GET /health   → Sonde de disponibilité          │
+│                          │    (no auth)      {"status": "ok"|"degraded",    │
+│                          │                    "model_loaded": true/false,   │
+│                          │                    "model_version": "v..."}      │
+│                          │                                                  │
+│                          │  GET /version  → Versions API + modèle           │
+│                          │    (auth)         {"api_version": "1.0.0",       │
+│                          │                    "model_version": "v...",      │
+│                          │                    "feature_count": 42}          │
+├──────────────────────────┼──────────────────────────────────────────────────┤
+│ src/api/routers/         │ ROUTER D'INFÉRENCE — le cœur de l'API :          │
+│   predict.py             │                                                  │
+│                          │  POST /predict  → Prend un PredictionRequest,    │
+│                          │    (auth)          appelle engineer_features()   │
+│                          │                   pour recalculer les 42 features│
+│                          │                   puis les 2 modèles LightGBM   │
+│                          │                   → retourne un PredictionResponse│
+│                          │                                                  │
+│                          │  GESTION D'ERREURS :                             │
+│                          │   503 → modèle non chargé                        │
+│                          │   422 → feature manquante                        │
+│                          │   500 → erreur interne (avec log)                │
+│                          │                                                  │
+│                          │  LOG de chaque prédiction avec géométrie,        │
+│                          │  résultats et temps de réponse en ms             │
 ├──────────────────────────┼──────────────────────────────────────────────────┤
 │ src/api/schemas.py       │ Définit le FORMAT exact des données échangées.   │
 │                          │                                                  │
-│                          │  PredictRequest = ce qu'on ENVOIE à l'API        │
-│                          │  PredictResponse = ce que l'API nous RETOURNE    │
+│                          │  PredictionRequest = ce qu'on ENVOIE à l'API     │
+│                          │   geometry_type, length_m, height_m,             │
+│                          │   young_modulus_pa, poisson_ratio, traction_pa,  │
+│                          │   material_category, dimension_category,         │
+│                          │   hole_radius_ratio (optionnel), hole_cx/cy_ratio│
 │                          │                                                  │
-│                          │  Pydantic valide automatiquement les types :      │
-│                          │  Si on envoie "abc" pour width_m → erreur claire │
+│                          │  PredictionResponse = ce que l'API RETOURNE      │
+│                          │   model_version, predictions{}, input_summary{}  │
+│                          │                                                  │
+│                          │  Pydantic valide automatiquement les types :     │
+│                          │  Si on envoie "abc" pour length_m → erreur claire│
 ├──────────────────────────┼──────────────────────────────────────────────────┤
 │ src/api/model_loader.py  │ Charge le bon modèle depuis le registre.          │
 │                          │                                                  │
@@ -731,17 +799,18 @@
   STRUCTURE DU REGISTRE DE MODÈLES :
   ┌─────────────────────────────────────────────────────────────────────┐
   │  artifacts/models/lgbm_surrogate/                                   │
-  │  ├── latest.txt                 ← "v20260311_114115"                │
-  │  ├── v20260310_140905/          ← version précédente               │
-  │  │   ├── lgbm_max_displacement_m.joblib                            │
-  │  │   ├── lgbm_max_von_mises_pa.joblib                              │
-  │  │   ├── advanced_metrics.csv                                      │
-  │  │   ├── eval_metrics.json                                         │
-  │  │   ├── manifest.json                                             │
-  │  │   ├── checksums.sha256                                          │
-  │  │   └── checksums.json                                            │
-  │  └── v20260311_114115/          ← version actuelle (latest)       │
-  │      └── (mêmes fichiers)                                          │
+  │  ├── latest.txt                 ← "v20260520_083223"               │
+  │  ├── v20260310_140905/          ← version initiale                 │
+  │  ├── v20260311_114115/                                             │
+  │  ├── v20260512_102720/                                             │
+  │  ├── v20260520_074704/                                             │
+  │  └── v20260520_083223/          ← version actuelle (latest)       │
+  │      ├── lgbm_max_displacement_m.joblib                            │
+  │      ├── lgbm_max_von_mises_pa.joblib                              │
+  │      ├── advanced_metrics.csv                                      │
+  │      ├── manifest.json                                             │
+  │      ├── checksums.sha256                                          │
+  │      └── checksums.json                                            │
   └─────────────────────────────────────────────────────────────────────┘
 
 ┌───────────────────────────────────┬───────────────────────────────────────────┐
@@ -854,13 +923,15 @@
   ┌──────────────────────────────────────┬───────────────────────────────┐
   │ Métrique                             │ Valeur                        │
   ├──────────────────────────────────────┼───────────────────────────────┤
-  │ Modules Python                       │ 15                            │
+  │ Modules Python                       │ 17                            │
   │ Tests automatiques                   │ 61 (tous passants ✓)          │
   │ Features physiques calculées         │ 42                            │
   │ Modèles LightGBM entraînés           │ 2 (un par cible)              │
-  │ Versions de modèles                  │ 2 (v20260310, v20260311)      │
+  │ Versions de modèles                  │ 5 (v20260310 → v20260520)     │
   │ Sources de données brutes            │ 9 répertoires de simulations  │
   │ Services Docker                      │ 8                             │
+  │ Règles d'alerte Grafana              │ 4 (API down, MLflow down,     │
+  │                                      │    erreurs 5xx, latence)      │
   │ Performance modèle (R² log)          │ > 0.99                        │
   │ Erreur moyenne (MAPE)                │ ~5%                           │
   └──────────────────────────────────────┴───────────────────────────────┘
@@ -883,14 +954,137 @@
   │  5. VÉRIFIER    → python -m src.cli verify-artifacts                │
   │     Checksums SHA-256 → rien n'a été corrompu                       │
   │                                                                      │
-  │  6. DÉPLOYER    → docker-compose up                                 │
-  │     8 services démarrés → API à :8000, Dashboard à :8501           │
+  │  6. POUSSER     → git push origin main                              │
+  │     CI GitHub Actions → lint + tests + notification Slack           │
   │                                                                      │
-  │  7. UTILISER    → http://localhost:8501                             │
+  │  7. DÉPLOYER    → docker-compose up                                 │
+  │     8 services démarrés → API à :8000, Dashboard à :8501           │
+  │     Grafana :3000 avec alertes Slack configurées                    │
+  │                                                                      │
+  │  8. UTILISER    → http://localhost:8501                             │
   │     Formulaire web → prédiction en < 1ms                            │
   │                                                                      │
   └─────────────────────────────────────────────────────────────────────┘
 
 ================================================================================
-  Total fichiers : ~150+ | Généré le : 2026-03-11
+  INTÉGRATION CONTINUE (CI/CD) — .github/workflows/
+================================================================================
+
+  POURQUOI UNE CI ?
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  À chaque push ou Pull Request sur la branche main, GitHub          │
+  │  lance automatiquement les tests + le lint.                         │
+  │  Si quelque chose casse → notification Slack immédiate.             │
+  │  Si tout passe → notification de succès.                            │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  FLUX DE LA CI :
+  ┌───────────────────────────────────────────────────────────────────┐
+  │  git push main                                                     │
+  │       ↓                                                            │
+  │  GitHub Actions (ubuntu-latest, Python 3.11)                      │
+  │       ↓                                                            │
+  │  pip install requirements/dev.txt                                  │
+  │       ↓                                                            │
+  │  Lint : py_compile (vérifie la syntaxe de tous les modules)       │
+  │       ↓                                                            │
+  │  Tests : python -m unittest discover tests/                       │
+  │       ↓                              ↓                            │
+  │  Succès → Slack ✅              Échec → Slack ❌                   │
+  └───────────────────────────────────────────────────────────────────┘
+
+┌───────────────────────────────┬───────────────────────────────────────────┐
+│ Fichier                       │ Rôle détaillé                             │
+├───────────────────────────────┼───────────────────────────────────────────┤
+│ .github/workflows/ci.yml      │ Pipeline CI GitHub Actions.               │
+│                               │                                           │
+│                               │  DÉCLENCHEURS :                           │
+│                               │   push sur main                           │
+│                               │   pull_request vers main                  │
+│                               │                                           │
+│                               │  ÉTAPES :                                 │
+│                               │  1. checkout du code                      │
+│                               │  2. Setup Python 3.11 (cache pip)         │
+│                               │  3. pip install requirements/dev.txt      │
+│                               │  4. Lint avec py_compile sur tous les     │
+│                               │     modules src/ (détecte les erreurs de  │
+│                               │     syntaxe sans exécuter le code)        │
+│                               │  5. Tests avec unittest discover          │
+│                               │     (FEniCS exclu — tourne seulement      │
+│                               │     les tests unitaires et smoke)         │
+│                               │  6. Notification Slack succès/échec       │
+│                               │     via SLACK_WEBHOOK_URL (secret GitHub) │
+│                               │                                           │
+│                               │  NOTE : Les simulations FEM réelles sont  │
+│                               │  exclues de la CI (besoin de FEniCS/Docker│
+│                               │  + peuvent durer des heures)              │
+└───────────────────────────────┴───────────────────────────────────────────┘
+
+================================================================================
+  ALERTING GRAFANA — infra/grafana/provisioning/alerting/
+================================================================================
+
+  POURQUOI DES ALERTES ?
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  En production, on ne peut pas surveiller les graphiques 24h/24.    │
+  │  Les alertes automatiques envoient un message Slack dès qu'un       │
+  │  problème est détecté : API down, erreurs en hausse, latence haute. │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  FLUX DES ALERTES :
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                      │
+  │  Prometheus  →  Grafana (évalue les règles toutes les 1 min)        │
+  │                    ↓  (condition violée ?)                           │
+  │               contact-points.yml                                    │
+  │                    ↓                                                 │
+  │               Slack webhook → #channel                              │
+  │               "🚨 API FEM Surrogate est DOWN"                       │
+  │                                                                      │
+  └─────────────────────────────────────────────────────────────────────┘
+
+┌───────────────────────────────────────────────┬─────────────────────────────┐
+│ Fichier                                       │ Rôle                        │
+├───────────────────────────────────────────────┼─────────────────────────────┤
+│ infra/grafana/provisioning/alerting/          │ Définit les 4 règles        │
+│   rules.yml                                   │ d'alerte automatiques :     │
+│                                               │                             │
+│                                               │  1. API Down (critique)     │
+│                                               │     up{job="fem_api"} < 1   │
+│                                               │     → alerte après 1 min    │
+│                                               │                             │
+│                                               │  2. MLflow Down (critique)  │
+│                                               │     up{job="mlflow"} < 1    │
+│                                               │     → alerte après 1 min    │
+│                                               │                             │
+│                                               │  3. Taux erreurs 5xx élevé  │
+│                                               │     (warning)               │
+│                                               │     > 0.05 req/s en erreur  │
+│                                               │     pendant 2 min           │
+│                                               │                             │
+│                                               │  4. Latence p99 élevée      │
+│                                               │     (warning)               │
+│                                               │     p99 > 2 secondes        │
+│                                               │     pendant 3 min           │
+├───────────────────────────────────────────────┼─────────────────────────────┤
+│ infra/grafana/provisioning/alerting/          │ Configure le canal de       │
+│   contact-points.yml                          │ notification Slack :        │
+│                                               │  - URL : $SLACK_WEBHOOK_URL │
+│                                               │  - Canal : $SLACK_CHANNEL   │
+│                                               │  - Titre + message formatés │
+│                                               │    avec alerte + sévérité   │
+│                                               │  - Notification de résol.   │
+│                                               │    (quand l'alerte se lève) │
+├───────────────────────────────────────────────┼─────────────────────────────┤
+│ infra/grafana/provisioning/alerting/          │ Définit la politique de     │
+│   notification-policies.yml                  │ routage des alertes :       │
+│                                               │  - Toutes → slack-fem       │
+│                                               │  - Regroupées par alertname │
+│                                               │    + job                    │
+│                                               │  - Délai : 30s avant envoi  │
+│                                               │  - Répétition : toutes 4h   │
+└───────────────────────────────────────────────┴─────────────────────────────┘
+
+================================================================================
+  Total fichiers : ~160+ | Mis à jour le : 2026-05-20
 ================================================================================
