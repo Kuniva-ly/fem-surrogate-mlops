@@ -1,0 +1,25 @@
+# ── Spark ETL — FEM Surrogate ─────────────────────────────────────────────────
+# One-shot job : reads raw simulations from MinIO (S3A) and writes the cleaned
+# Data Warehouse back to the processed-simulations bucket.
+#
+# Usage:
+#   docker compose --profile etl up spark-etl
+
+FROM python:3.11-slim
+
+# Java runtime is required by PySpark
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openjdk-21-jre-headless procps \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+
+WORKDIR /app
+
+COPY requirements/base.txt requirements/
+RUN pip install --no-cache-dir -r requirements/base.txt
+
+COPY src/ src/
+COPY configs/ configs/
+
+CMD ["python", "-m", "src.processing.spark_ingest", "--use-minio"]

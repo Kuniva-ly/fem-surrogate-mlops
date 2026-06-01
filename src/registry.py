@@ -49,7 +49,7 @@ class ModelRegistry:
         self.root = Path(registry_dir) / model_name
         self.model_name = model_name
 
-    # ── Registration ──────────────────────────────────────────────────────────
+    # Registration
 
     def register(
         self,
@@ -88,7 +88,7 @@ class ModelRegistry:
         print(f"[registry] Registered {self.model_name}  version={version}  -> {dest}")
         return version, dest
 
-    # ── Queries ───────────────────────────────────────────────────────────────
+    # Queries
 
     def latest_version(self) -> str | None:
         """Return the latest registered version string, or None."""

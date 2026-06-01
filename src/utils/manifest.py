@@ -70,7 +70,7 @@ def dataset_fingerprint(paths: list[Path]) -> str:
     h = hashlib.sha256()
     for p in sorted(str(x) for x in paths):
         fp = Path(p)
-        if fp.exists():
+        if fp.exists() and fp.is_file():
             h.update(fp.read_bytes())
     return h.hexdigest()
 

@@ -65,7 +65,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["inference"])
 
 
-# ── Inference helper ──────────────────────────────────────────────────────────
+# Inference helper
 
 def _infer(request: PredictionRequest) -> dict[str, float]:
     """Run the surrogate model for all loaded targets.
@@ -93,12 +93,21 @@ def _infer(request: PredictionRequest) -> dict[str, float]:
             df[cat_present] = lm.encoder.transform(df[cat_present].astype(str))
         X = df[lm.feature_cols].astype(float)
         y_log = lm.model.predict(X)
-        results[target] = float(10.0 ** y_log[0])
+
+        # Re-multiply by the normaliser used at training time:
+        #   max_von_mises_pa   → × traction_pa    (model predicts Kt_eff)
+        #   max_displacement_m → × delta_theory   (model predicts C_disp)
+        normalize_by = lm.normalize_by
+        if normalize_by and normalize_by in case_df.columns:
+            denorm = float(case_df[normalize_by].iloc[0])
+        else:
+            denorm = 1.0
+        results[target] = float(10.0 ** y_log[0] * denorm)
 
     return results
 
 
-# ── Endpoint ──────────────────────────────────────────────────────────────────
+# Endpoint
 
 @router.post("/predict", response_model=PredictionResponse)
 async def predict(

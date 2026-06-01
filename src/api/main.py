@@ -40,7 +40,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ── Lifecycle ─────────────────────────────────────────────────────────────────
+# Lifecycle
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down.")
 
 
-# ── Application factory ───────────────────────────────────────────────────────
+# Application factory
 
 app = FastAPI(
     title="FEM Surrogate API",
@@ -79,12 +79,12 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-# ── Routers ───────────────────────────────────────────────────────────────────
+# Routers
 
 app.include_router(ops.router)
 app.include_router(predict.router)
 
-# ── Optional Prometheus instrumentation ───────────────────────────────────────
+# Optional Prometheus instrumentation
 
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
@@ -97,7 +97,7 @@ except ImportError:
     )
 
 
-# ── Global error handler ──────────────────────────────────────────────────────
+# Global error handler
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:

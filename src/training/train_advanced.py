@@ -60,28 +60,42 @@ def _set_global_seed(seed: int) -> None:
     np.random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
 
-# ── Constants ─────────────────────────────────────────────────────────────────
+# Constants
 TARGET_COLS    = ["max_displacement_m", "max_von_mises_pa"]
 DROP_COLS      = ["simulation_id", "timestamp", "solver_name",
-                  "solver_version", "data_version", "mesh_nx", "mesh_ny"]
+                  "solver_version", "data_version", "mesh_nx", "mesh_ny",
+                  "simulation_source", "source"]
 CAT_COLS       = ["geometry_type", "material_category", "dimension_category"]
 _EPS           = 1e-12
+
+# Normalisation des cibles avant log :
+#   max_von_mises_pa   → divisé par traction_pa   → modèle prédit log10(Kt_eff)
+#   max_displacement_m → divisé par delta_theory   → modèle prédit log10(C_disp)
+# L'API restitue la grandeur physique en multipliant par le dénominateur à l'inférence.
+# Cette normalisation supprime la dépendance linéaire en traction que LightGBM
+# (modèle additif) ne peut pas apprendre fiablement quand la géométrie varie davantage.
+NORMALIZE_BY: dict[str, str] = {
+    "max_von_mises_pa":   "traction_pa",   # Kt_eff = σ_VM / σ_app
+    "max_displacement_m": "delta_theory",  # C_disp = u / u_théorique
+}
 
 # Physical monotonicity constraints for LightGBM.
 # +1 = target increases with this feature
 # -1 = target decreases with this feature
 #  0 = no constraint
 # Applied to both models; features absent from X are silently ignored.
+# Après normalisation, les features proportionnels à la traction n'ont plus
+# de relation monotone avec la cible adimensionnelle → contrainte = 0.
 _MONO_CONSTRAINTS: dict[str, int] = {
-    "traction_pa":       +1,   # more load -> more stress and displacement
+    "traction_pa":       0,    # Kt_eff et C_disp sont indépendants de la charge (élasticité linéaire)
     "young_modulus_pa":  -1,   # stiffer -> less displacement (not directly on vm)
-    "logS":              +1,
+    "logS":              0,    # log(traction) — normalisé hors cible
     "logE":              -1,
-    "log_sigma_net":     +1,
-    "sigma_net":         +1,
-    "log_delta_th":      +1,   # larger theoretical displacement -> larger actual
-    "delta_theory":      +1,
-    "epsilon":           +1,
+    "log_sigma_net":     0,    # ∝ traction — normalisé hors cible
+    "sigma_net":         0,    # ∝ traction — normalisé hors cible
+    "log_delta_th":      0,    # ∝ traction — normalisé hors cible (déplacement)
+    "delta_theory":      0,    # normalisé hors cible (déplacement)
+    "epsilon":           0,    # = traction/E — normalisé hors cible
     "hole_radius_ratio": +1,   # larger hole -> greater stress concentration
     "d_over_W":          +1,
     "Kt_theory":         +1,
@@ -91,11 +105,32 @@ _MONO_CONSTRAINTS: dict[str, int] = {
 }
 
 
-# ── I/O ───────────────────────────────────────────────────────────────────────
+# I/O
 def _load(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Split file not found: {path}")
     return pd.read_parquet(path)
+
+
+def _download_splits_from_minio(local_dir: Path) -> None:
+    """Télécharge train/val/test splits depuis le bucket MinIO features."""
+    import os
+    import boto3
+
+    endpoint   = os.getenv("MLFLOW_S3_ENDPOINT_URL", "http://localhost:9000")
+    access_key = os.getenv("AWS_ACCESS_KEY_ID",      "minioadmin")
+    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY",  "minioadmin")
+    bucket     = os.getenv("MINIO_BUCKET_FEATURES",  "features")
+
+    s3 = boto3.client("s3", endpoint_url=endpoint,
+                      aws_access_key_id=access_key,
+                      aws_secret_access_key=secret_key)
+
+    local_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[train] Download splits depuis s3://{bucket}/...")
+    for filename in ("train.parquet", "val.parquet", "test.parquet"):
+        s3.download_file(bucket, filename, str(local_dir / filename))
+        print(f"  ↓ {filename}")
 
 
 def _feature_columns(df: pd.DataFrame) -> list[str]:
@@ -103,7 +138,7 @@ def _feature_columns(df: pd.DataFrame) -> list[str]:
     return [c for c in df.columns if c not in exclude]
 
 
-# ── Pre-processing ────────────────────────────────────────────────────────────
+# Pre-processing
 def _encode_categoricals(
     train: pd.DataFrame,
     val: pd.DataFrame,
@@ -128,19 +163,35 @@ def _encode_categoricals(
     return train, val, test, enc
 
 
-def _log_targets(df: pd.DataFrame) -> pd.DataFrame:
-    """Add log10-transformed target columns."""
+def _normalize_and_log_targets(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize each target by its physical reference then apply log10.
+
+    Von Mises  : log10(σ_VM / traction_pa)   → model predicts log10(Kt_eff)
+    Displacement: log10(u / delta_theory)      → model predicts log10(C_disp)
+
+    This removes the linear-in-load component from the target so that tree
+    splits capture only geometric/material effects (Kt, correction factor).
+    The API multiplies the prediction back by the normaliser at inference time.
+    """
     out = df.copy()
     for t in TARGET_COLS:
-        if t in out.columns:
-            out[f"log_{t}"] = np.log10(out[t].clip(lower=_EPS))
+        if t not in out.columns:
+            continue
+        norm_col = NORMALIZE_BY[t]
+        norm_vals = out[norm_col].clip(lower=_EPS)
+        out[f"log_{t}"] = np.log10((out[t] / norm_vals).clip(lower=_EPS))
     return out
 
 
-# ── Metrics ───────────────────────────────────────────────────────────────────
+# Metrics
 def _metrics(y_true_log: np.ndarray, y_pred_log: np.ndarray,
-             y_true_orig: np.ndarray) -> dict[str, float]:
-    y_pred_orig = 10.0 ** y_pred_log
+             y_true_orig: np.ndarray,
+             denorm_factors: np.ndarray | None = None) -> dict[str, float]:
+    # y_pred_log is in normalised log space; multiply back by denorm to get physical units
+    if denorm_factors is not None:
+        y_pred_orig = 10.0 ** y_pred_log * denorm_factors
+    else:
+        y_pred_orig = 10.0 ** y_pred_log
     return {
         "r2_log":    float(r2_score(y_true_log,  y_pred_log)),
         "rmse_log":  float(np.sqrt(mean_squared_error(y_true_log,  y_pred_log))),
@@ -152,7 +203,7 @@ def _metrics(y_true_log: np.ndarray, y_pred_log: np.ndarray,
     }
 
 
-# ── Optuna objective ──────────────────────────────────────────────────────────
+# Optuna objective
 def _build_optuna_objective(
     X_train: pd.DataFrame,
     y_train: np.ndarray,
@@ -196,7 +247,7 @@ def _build_optuna_objective(
     return objective
 
 
-# ── Train one model ───────────────────────────────────────────────────────────
+# Train one model
 def _train_one_target(
     target_name: str,
     X_train: pd.DataFrame,
@@ -211,8 +262,10 @@ def _train_one_target(
     n_trials: int,
     cv_folds: int,
     random_state: int,
+    denorm_val: np.ndarray | None = None,
+    denorm_test: np.ndarray | None = None,
 ) -> tuple[lgb.LGBMRegressor, dict, dict]:
-    """Optimise and train a LightGBM model for a single (log-transformed) target."""
+    """Optimise and train a LightGBM model for a single (normalised log) target."""
     print(f"\n{'='*60}")
     print(f"Target: {target_name}")
     print(f"{'='*60}")
@@ -222,7 +275,7 @@ def _train_one_target(
     # Build monotonicity constraint vector (must match feature_cols order)
     mono_constraints = [_MONO_CONSTRAINTS.get(c, 0) for c in feature_cols]
 
-    # ── Optuna search ──────────────────────────────────────────────────────
+    # Optuna search
     if n_trials > 0:
         print(f"Optuna: searching {n_trials} trials ...")
         study = optuna.create_study(
@@ -247,7 +300,7 @@ def _train_one_target(
             "colsample_bytree": 0.8, "reg_alpha": 0.1, "reg_lambda": 1.0,
         }
 
-    # ── Final model on full training set ───────────────────────────────────
+    # Final model on full training set
     final_params = {
         "objective":         "regression",
         "metric":            "rmse",
@@ -265,9 +318,9 @@ def _train_one_target(
                    lgb.log_evaluation(-1)],
     )
 
-    # ── Evaluation ────────────────────────────────────────────────────────
-    val_metrics  = _metrics(y_val_log,  model.predict(X_val),  y_val_orig)
-    test_metrics = _metrics(y_test_log, model.predict(X_test), y_test_orig)
+    # Evaluation (de-normalise predictions to original physical units)
+    val_metrics  = _metrics(y_val_log,  model.predict(X_val),  y_val_orig,  denorm_val)
+    test_metrics = _metrics(y_test_log, model.predict(X_test), y_test_orig, denorm_test)
 
     print(f"\n  Val  R²(log)={val_metrics['r2_log']:.4f}  "
           f"RMSE(log)={val_metrics['rmse_log']:.5f}  "
@@ -281,7 +334,7 @@ def _train_one_target(
     return model, val_metrics, test_metrics
 
 
-# ── Feature importance summary ────────────────────────────────────────────────
+# Feature importance summary
 def _print_top_features(model: lgb.LGBMRegressor, feature_cols: list[str],
                          target_name: str, top_n: int = 15) -> None:
     imp = pd.Series(model.feature_importances_, index=feature_cols)
@@ -291,7 +344,7 @@ def _print_top_features(model: lgb.LGBMRegressor, feature_cols: list[str],
         print(f"    {feat:30s}: {val:6.0f}")
 
 
-# ── Main training function ────────────────────────────────────────────────────
+# Main training function
 def train_advanced(
     data_dir: Path,
     out_dir: Path,
@@ -302,11 +355,14 @@ def train_advanced(
     mlflow_tracking_uri: str | None = None,
     mlflow_experiment: str = "advanced-surrogate",
     mlflow_run_name: str | None = None,
+    use_minio: bool = False,
 ) -> None:
-    # ── Initialise all RNG sources for full determinism ────────────────────
+    # Initialise all RNG sources for full determinism
     _set_global_seed(random_state)
 
-    # ── Load splits ───────────────────────────────────────────────────────
+    # Load splits
+    if use_minio:
+        _download_splits_from_minio(data_dir)
     train_df = _load(data_dir / "train.parquet")
     val_df   = _load(data_dir / "val.parquet")
     test_df  = _load(data_dir / "test.parquet")
@@ -320,12 +376,12 @@ def train_advanced(
     if not feature_cols:
         raise ValueError("No feature columns found after dropping targets/metadata.")
 
-    # ── Log-transform targets ──────────────────────────────────────────────
-    train_df = _log_targets(train_df)
-    val_df   = _log_targets(val_df)
-    test_df  = _log_targets(test_df)
+    # Normalize and log-transform targets
+    train_df = _normalize_and_log_targets(train_df)
+    val_df   = _normalize_and_log_targets(val_df)
+    test_df  = _normalize_and_log_targets(test_df)
 
-    # ── Encode categorical variables ──────────────────────────────────────
+    # Encode categorical variables
     train_df, val_df, test_df, enc = _encode_categoricals(
         train_df, val_df, test_df, feature_cols
     )
@@ -351,14 +407,20 @@ def train_advanced(
     all_metrics: dict[str, dict] = {}
     artifacts: dict[str, Path]   = {}
 
-    # ── Train one model per target ────────────────────────────────────────
+    # Train one model per target
     for target in TARGET_COLS:
-        log_target = f"log_{target}"
+        log_target   = f"log_{target}"
+        normalize_by = NORMALIZE_BY[target]
+
         y_train = train_df[log_target].to_numpy()
         y_val   = val_df[log_target].to_numpy()
         y_test  = test_df[log_target].to_numpy()
         y_val_orig  = val_df[target].to_numpy()
         y_test_orig = test_df[target].to_numpy()
+
+        # Denorm factors for original-scale evaluation (traction_pa or delta_theory)
+        denorm_val  = val_df[normalize_by].to_numpy()
+        denorm_test = test_df[normalize_by].to_numpy()
 
         model, val_m, test_m = _train_one_target(
             target_name=target,
@@ -369,6 +431,8 @@ def train_advanced(
             n_trials=n_trials,
             cv_folds=cv_folds,
             random_state=random_state,
+            denorm_val=denorm_val,
+            denorm_test=denorm_test,
         )
         _print_top_features(model, feature_cols, target)
 
@@ -376,12 +440,13 @@ def train_advanced(
 
         model_path = out_dir / f"lgbm_{target}.joblib"
         joblib.dump({"model": model, "feature_cols": feature_cols,
-                     "encoder": enc, "target": target, "log_target": log_target},
+                     "encoder": enc, "target": target, "log_target": log_target,
+                     "normalize_by": normalize_by},
                     model_path)
         artifacts[target] = model_path
         print(f"\n  Model saved: {model_path}")
 
-    # ── Summary ───────────────────────────────────────────────────────────
+    # Summary
     print("\n" + "="*60)
     print("FINAL SUMMARY")
     print("="*60)
@@ -399,7 +464,7 @@ def train_advanced(
     metrics_df.to_csv(metrics_path, index=False)
     print(f"\nMetrics saved: {metrics_path}")
 
-    # ── MLflow logging ────────────────────────────────────────────────────
+    # MLflow logging
     if mlflow_enabled:
         if mlflow is None:
             raise ImportError("mlflow not installed. pip install mlflow")
@@ -424,14 +489,27 @@ def train_advanced(
                 mlflow.log_artifact(str(path))
             mlflow.log_artifact(str(metrics_path))
             mlflow.set_tags({
-                "model_family": "lightgbm",
-                "task": "regression_log_transform",
-                "log_transform": "log10",
+                "model_family":   "lightgbm",
+                "task":           "regression_log_transform",
+                "log_transform":  "log10",
+                "normalize_by":   "traction_pa/delta_theory",
             })
-            print(f"MLflow run logged: {run.info.run_id}")
+
+            # Enregistrer dans le MLflow Model Registry → onglet "Models"
+            run_id = run.info.run_id
+            for target, path in artifacts.items():
+                model_uri = f"runs:/{run_id}/{path.name}"
+                reg_name  = f"fem-surrogate-{target.replace('_', '-')}"
+                try:
+                    mv = mlflow.register_model(model_uri, reg_name)
+                    print(f"  Registered: {reg_name}  version={mv.version}")
+                except Exception as e:
+                    print(f"  [warn] Model Registry non disponible: {e}")
+
+            print(f"MLflow run logged: {run_id}")
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+# CLI
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Train the advanced LightGBM surrogate with log transformation and Optuna optimisation."

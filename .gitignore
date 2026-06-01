@@ -21,6 +21,7 @@ env/
 /data/features/
 /data/models/
 /data/minio-storage/
+/data/postgres/
 *.parquet
 
 # ── ML artifacts — managed by registry, not by git ───────────────────────────

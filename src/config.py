@@ -26,7 +26,7 @@ except ImportError as exc:
 _DEFAULT_CONFIG = Path("configs/training.yaml")
 
 
-# ── Section dataclasses ───────────────────────────────────────────────────────
+# Section dataclasses
 
 @dataclass
 class DataConfig:
@@ -113,7 +113,7 @@ class PipelineConfig:
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
 
 
-# ── Loader ───────────────────────────────────────────────────────────────────
+# Loader
 
 def load_config(path: str | Path | None = None) -> PipelineConfig:
     """Load and validate the pipeline YAML configuration.

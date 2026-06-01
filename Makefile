@@ -1,5 +1,6 @@
 .PHONY: venv install install-api install-dev lint test \
-        build-features train train-mlflow evaluate predict verify-artifacts \
+        spark-ingest upload-raw spark-etl \
+        build-features build-features-minio train evaluate predict verify-artifacts \
         api dashboard \
         up up-build down logs \
         generate generate-without-hole generate-with-moving-hole \
@@ -22,7 +23,7 @@ venv:
 	$(PIP) install --upgrade pip
 
 install:
-	$(PIP) install -r requirements.txt
+	$(PIP) install -r requirements/base.txt -r requirements/api.txt -r requirements/dashboard.txt -r requirements/dev.txt
 
 install-api:
 	$(PIP) install -r requirements/api.txt
@@ -52,18 +53,38 @@ lint:
 test:
 	$(PYTHON) -m pytest tests/ -v
 
+# ── Démarrage complet en 1 commande ───────────────────────────────────────────
+start: up-build
+	$(PYTHON) scripts/wait_for_minio.py
+	$(PYTHON) scripts/upload_raw_to_minio.py
+	docker compose --profile etl run --rm spark-etl
+	$(CLI) build-features --use-minio
+
+# ── Spark ETL pipeline ────────────────────────────────────────────────────────
+## ETL local (data/raw → data/processed, sans Docker)
+spark-ingest:
+	$(CLI) spark-ingest
+
+## Upload data/raw/ vers MinIO puis ETL Spark dans Docker
+spark-etl: upload-raw
+	docker compose --profile etl run --rm spark-etl
+
+## Upload uniquement data/raw/ vers MinIO (raw-simulations bucket)
+upload-raw:
+	$(PYTHON) scripts/upload_raw_to_minio.py
+
 # ── Production ML pipeline ─────────────────────────────────────────────────────
-## Feature engineering + train/val/test splitting
+## Feature engineering depuis data/raw local
 build-features:
 	$(CLI) build-features --input data/raw
 
-## Train LightGBM model (reads configs/training.yaml, registers artifact)
-train:
-	$(CLI) train
+## Feature engineering depuis MinIO (warehouse → features bucket)
+build-features-minio:
+	$(CLI) build-features --use-minio
 
-## Train with MLflow logging (requires MLflow service running at MLFLOW_TRACKING_URI)
-train-mlflow:
-	$(CLI) train --mlflow
+## Train LightGBM (features depuis MinIO, log MLflow → artifacts MinIO)
+train:
+	$(CLI) train --mlflow --use-minio
 
 ## Evaluate latest registered model
 evaluate:

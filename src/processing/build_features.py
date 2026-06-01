@@ -38,12 +38,80 @@ MESH_COLS = ["mesh_nx", "mesh_ny"]
 _EPS = 1e-12
 
 
-#  I/O 
+#  I/O
 def _read_raw(input_dir: Path) -> pd.DataFrame:
     files = sorted(input_dir.rglob("*.parquet"))
     if not files:
         raise FileNotFoundError(f"No parquet files found in: {input_dir}")
     return pd.concat((pd.read_parquet(p) for p in files), ignore_index=True)
+
+
+def _upload_features_to_minio(out_dir: Path, features_dir: Path) -> None:
+    """Upload splits et feature store vers le bucket MinIO features."""
+    import os
+    import boto3
+
+    endpoint   = os.getenv("MLFLOW_S3_ENDPOINT_URL", "http://localhost:9000")
+    access_key = os.getenv("AWS_ACCESS_KEY_ID",      "minioadmin")
+    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY",  "minioadmin")
+    bucket     = os.getenv("MINIO_BUCKET_FEATURES",  "features")
+
+    s3 = boto3.client("s3", endpoint_url=endpoint,
+                      aws_access_key_id=access_key,
+                      aws_secret_access_key=secret_key)
+
+    files = [
+        out_dir / "train.parquet",
+        out_dir / "val.parquet",
+        out_dir / "test.parquet",
+        features_dir / "features.parquet",
+        features_dir / "feature_columns.txt",
+    ]
+    print(f"[build_features] Upload vers s3://{bucket}/...")
+    for f in files:
+        if f.exists():
+            s3.upload_file(str(f), bucket, f.name)
+            print(f"  ↑ {f.name}")
+
+
+def _download_warehouse_from_minio(local_dir: Path) -> Path:
+    """Download warehouse.parquet from MinIO processed-simulations to local cache."""
+    import os
+    import boto3
+
+    endpoint   = os.getenv("MLFLOW_S3_ENDPOINT_URL", "http://localhost:9000")
+    access_key = os.getenv("AWS_ACCESS_KEY_ID",      "minioadmin")
+    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY",  "minioadmin")
+    bucket     = os.getenv("MINIO_BUCKET_PROCESSED", "processed-simulations")
+    prefix     = "warehouse.parquet/"
+
+    s3 = boto3.client("s3", endpoint_url=endpoint,
+                      aws_access_key_id=access_key,
+                      aws_secret_access_key=secret_key)
+
+    response = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
+    objects  = [o for o in response.get("Contents", []) if o["Key"].endswith(".parquet")]
+
+    if not objects:
+        raise FileNotFoundError(
+            f"No parquet files in s3://{bucket}/{prefix} — "
+            "run 'spark-etl' first to populate the Data Warehouse."
+        )
+
+    import shutil
+    local_wh = local_dir / "warehouse.parquet"
+    if local_wh.exists():
+        shutil.rmtree(local_wh)
+    local_wh.mkdir(parents=True, exist_ok=True)
+
+    print(f"[build_features] Download depuis s3://{bucket}/{prefix} ({len(objects)} fichiers)...")
+    for obj in objects:
+        filename   = Path(obj["Key"]).name
+        local_file = local_wh / filename
+        s3.download_file(bucket, obj["Key"], str(local_file))
+        print(f"  ↓ {filename}")
+
+    return local_wh
 
 
 #  Data quality 
@@ -225,7 +293,7 @@ def engineer_features(df: pd.DataFrame, require_targets: bool = True) -> pd.Data
     out["log_lig_min"]    = np.log10(out["lig_min"].clip(lower=_EPS))
     out["log_edge_ratio"] = np.log10(out["edge_ratio"].clip(lower=_EPS))
 
-    # ── Legacy feature kept for backward compatibility (= epsilon, rename preserved) ──
+    # Legacy feature kept for backward compatibility (= epsilon, rename preserved)
     out["traction_over_E"] = out["epsilon"]   # σ/E = strain
 
     return out
@@ -305,7 +373,10 @@ def build_features(
     split_strategy: str = "hash",
     features_out_dir: Path | None = None,
     keep_ambiguous_as_without_hole: bool = False,
+    use_minio: bool = False,
 ) -> None:
+    if use_minio:
+        input_dir = _download_warehouse_from_minio(out_dir)
     raw     = _read_raw(input_dir)
     dataset = _engineer(raw, keep_ambiguous_as_without_hole=keep_ambiguous_as_without_hole)
     train_df, val_df, test_df = _split(
@@ -333,6 +404,9 @@ def build_features(
     test_df.to_parquet(test_path, index=False)
     feature_cols_path.write_text("\n".join(feature_cols), encoding="utf-8")
 
+    if use_minio:
+        _upload_features_to_minio(out_dir, features_dir)
+
     print(f"Built features dataset from : {input_dir}")
     print(f"Total usable rows           : {len(dataset):,} -> {features_ds_path}")
     print(f"Train rows                  : {len(train_df):,} -> {train_path}")
@@ -346,7 +420,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Build physics feature splits from raw simulation parquet data."
     )
-    parser.add_argument("--input", required=True, type=Path, help="Raw input directory")
+    parser.add_argument("--use-minio", action="store_true",
+                        help="Télécharger warehouse.parquet depuis MinIO au lieu de lire --input")
+    parser.add_argument("--input", type=Path, default=Path("data/raw"),
+                        help="Répertoire d'entrée (ignoré si --use-minio)")
     parser.add_argument("--out-dir", type=Path, default=Path("data/processed"))
     parser.add_argument("--features-out-dir", type=Path, default=None)
     parser.add_argument("--train-ratio", type=float, default=0.7)
@@ -375,6 +452,7 @@ def main() -> None:
         split_strategy=args.split_strategy,
         features_out_dir=args.features_out_dir,
         keep_ambiguous_as_without_hole=args.keep_ambiguous_as_without_hole,
+        use_minio=args.use_minio,
     )
 
 

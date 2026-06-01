@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 CAT_COLS: list[str] = ["geometry_type", "material_category", "dimension_category"]
 
 
-# ── Request ───────────────────────────────────────────────────────────────────
+# Request
 
 class PredictionRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={
@@ -90,7 +90,7 @@ class PredictionRequest(BaseModel):
         return self
 
 
-# ── Response ──────────────────────────────────────────────────────────────────
+# Response
 
 class PredictionResult(BaseModel):
     max_displacement_m: float = Field(..., description="Predicted maximum displacement in metres")

@@ -38,7 +38,7 @@ _EPS = 1e-12
 METRIC_KEYS = ("r2_log", "rmse_log", "mae_log", "r2_orig", "rmse_orig", "mape")
 
 
-# ── Core metric computation ───────────────────────────────────────────────────
+# Core metric computation
 
 def compute_metrics(
     y_true_log: np.ndarray,
@@ -68,7 +68,7 @@ def compute_metrics(
     }
 
 
-# ── DataFrame utilities ───────────────────────────────────────────────────────
+# DataFrame utilities
 
 def build_metrics_df(
     all_metrics: dict[str, dict[str, dict[str, float]]],
@@ -88,7 +88,7 @@ def build_metrics_df(
     return pd.DataFrame(rows)
 
 
-# ── Persistence ───────────────────────────────────────────────────────────────
+# Persistence
 
 def save_metrics(
     metrics_df: pd.DataFrame,
@@ -128,7 +128,7 @@ def save_metrics(
     return json_path, csv_path
 
 
-# ── Console output ────────────────────────────────────────────────────────────
+# Console output
 
 def print_metrics_table(metrics_df: pd.DataFrame) -> None:
     """Print a formatted metrics table to stdout."""

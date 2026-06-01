@@ -25,7 +25,8 @@ class LoadedModel:
     target: str
     model: object
     feature_cols: list[str]
-    encoder: object  # OrdinalEncoder or None
+    encoder: object        # OrdinalEncoder or None
+    normalize_by: str | None = None  # feature column used to normalise the log target at training
 
 
 @dataclass
@@ -75,6 +76,7 @@ def load_models(model_dir: Path | str | None = None) -> ModelBundle:
                 model=artifact["model"],
                 feature_cols=artifact["feature_cols"],
                 encoder=artifact.get("encoder"),
+                normalize_by=artifact.get("normalize_by"),
             )
             logger.info("Loaded model for '%s' from %s", target, artifact_path)
         except Exception as exc:

@@ -2,6 +2,7 @@
 
 Commands
 --------
+  spark-ingest      Runs the Spark ETL pipeline (Extract → Transform → Load).
   build-features    Computes features and creates train/val/test splits.
   train             Trains the advanced LightGBM surrogate model.
   evaluate          Evaluates a trained model on val/test splits.
@@ -10,6 +11,7 @@ Commands
 
 Usage (Windows PowerShell)
 --------------------------
+  python -m src.cli spark-ingest --raw-dir data/raw --wh-dir data/processed
   .venv\\Scripts\\python -m src.cli build-features --input data/raw
   .venv\\Scripts\\python -m src.cli train --n-trials 60
   .venv\\Scripts\\python -m src.cli evaluate
@@ -27,8 +29,22 @@ import argparse
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()
 
-# ── Sub-command handlers ─────────────────────────────────────────────────────────
+
+# Sub-command handlers
+
+def _cmd_spark_ingest(args: argparse.Namespace) -> int:
+    from src.processing.spark_ingest import run_pipeline
+
+    run_pipeline(
+        raw_dir=Path(args.raw_dir),
+        wh_dir=Path(args.wh_dir),
+        use_minio=args.use_minio,
+    )
+    return 0
+
 
 def _cmd_build_features(args: argparse.Namespace) -> int:
     from src.config import load_config
@@ -46,6 +62,7 @@ def _cmd_build_features(args: argparse.Namespace) -> int:
         split_strategy=args.split_strategy or f.split_strategy,
         features_out_dir=Path(args.features_out_dir) if args.features_out_dir else d.features_dir,
         keep_ambiguous_as_without_hole=args.keep_ambiguous or f.keep_ambiguous,
+        use_minio=args.use_minio,
     )
     return 0
 
@@ -88,10 +105,11 @@ def _cmd_train(args: argparse.Namespace) -> int:
         mlflow_tracking_uri=mlflow_uri,
         mlflow_experiment=mlflow_exp,
         mlflow_run_name=args.mlflow_run_name,
+        use_minio=args.use_minio,
     )
 
-    # ── Manifest ──────────────────────────────────────────────────────────────
-    dataset_files = list(data_dir.glob("*.parquet"))
+    # Manifest
+    dataset_files = [f for f in data_dir.glob("*.parquet") if f.is_file()]
     manifest = build_manifest(
         config_snapshot={
             "data_dir":     str(data_dir),
@@ -103,7 +121,7 @@ def _cmd_train(args: argparse.Namespace) -> int:
     )
     save_manifest(manifest, out_dir / "manifest.json")
 
-    # ── Checksums ─────────────────────────────────────────────────────────────
+    # Checksums
     artifact_files = (
         list(out_dir.glob("*.joblib"))
         + list(out_dir.glob("*.csv"))
@@ -113,7 +131,7 @@ def _cmd_train(args: argparse.Namespace) -> int:
     checksums = generate_checksums(artifact_files)
     save_checksums(checksums, out_dir / "checksums")
 
-    # ── Registry ──────────────────────────────────────────────────────────────
+    # Registry
     if not args.no_registry:
         registry = ModelRegistry(art.registry_dir, art.model_name)
         version, reg_path = registry.register(source_dir=out_dir)
@@ -292,7 +310,7 @@ def _cmd_verify_artifacts(args: argparse.Namespace) -> int:
         return 1
 
 
-# ── Argument parser ───────────────────────────────────────────────────────────
+# Argument parser
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -320,11 +338,25 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
-    # ── build-features ────────────────────────────────────────────────────────
+    # spark-ingest
+    p = sub.add_parser(
+        "spark-ingest",
+        help="Spark ETL pipeline : Extract → Transform → Load → Validate (RNCP Bloc 1).",
+    )
+    p.add_argument("--use-minio", action="store_true",
+                   help="Lire/écrire via MinIO S3A (nécessite le Docker stack actif)")
+    p.add_argument("--raw-dir", metavar="DIR", default="data/raw",
+                   help="[local] Répertoire des sources raw partitionnées (défaut: data/raw)")
+    p.add_argument("--wh-dir",  metavar="DIR", default="data/processed",
+                   help="[local] Répertoire de sortie du Data Warehouse (défaut: data/processed)")
+
+    # build-features
     p = sub.add_parser(
         "build-features",
         help="Compute physics features and create train/val/test splits.",
     )
+    p.add_argument("--use-minio", action="store_true",
+                   help="Lire warehouse.parquet depuis MinIO (processed-simulations)")
     p.add_argument("--input",            metavar="DIR",  help="Raw parquet input directory (overrides config)")
     p.add_argument("--out-dir",          metavar="DIR",  help="Output directory for processed splits")
     p.add_argument("--features-out-dir", metavar="DIR",  help="Output directory for the feature store")
@@ -335,11 +367,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-ambiguous",   action="store_true", default=False,
                    help="Treat ambiguous rows as without_hole instead of dropping them")
 
-    # ── train ─────────────────────────────────────────────────────────────────
+    # train
     p = sub.add_parser(
         "train",
         help="Train the advanced LightGBM surrogate with Optuna optimisation.",
     )
+    p.add_argument("--use-minio", action="store_true",
+                   help="Télécharger train/val/test depuis MinIO (features bucket)")
     p.add_argument("--data-dir",     metavar="DIR", help="Directory containing train/val/test .parquet files")
     p.add_argument("--out-dir",      metavar="DIR", help="Output directory for model artifacts")
     p.add_argument("--n-trials",     type=int, default=None, metavar="INT",
@@ -357,7 +391,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mlflow-run-name", metavar="NAME",
                    help="MLflow run name (default: auto)")
 
-    # ── evaluate ──────────────────────────────────────────────────────────────
+    # evaluate
     p = sub.add_parser(
         "evaluate",
         help="Evaluate the trained model on val/test splits (uses latest registry version by default).",
@@ -366,7 +400,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--data-dir",  metavar="DIR", help="Directory containing split parquet files")
     p.add_argument("--out-dir",   metavar="DIR", help="Directory for evaluation output files")
 
-    # ── predict ───────────────────────────────────────────────────────────────
+    # predict
     p = sub.add_parser(
         "predict",
         help="Run inference on a single case (features are computed automatically from raw parameters).",
@@ -375,7 +409,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--case-json",  metavar="JSON", help="Inline JSON dict for the input case")
     p.add_argument("--case-file",  metavar="FILE", help="Path to a JSON file containing the case parameters")
 
-    # ── verify-artifacts ──────────────────────────────────────────────────────
+    # verify-artifacts
     p = sub.add_parser(
         "verify-artifacts",
         help="Verify SHA-256 checksums of model artifacts.",
@@ -391,6 +425,7 @@ def main() -> None:
     args = parser.parse_args()
 
     handlers = {
+        "spark-ingest":     _cmd_spark_ingest,
         "build-features":   _cmd_build_features,
         "train":            _cmd_train,
         "evaluate":         _cmd_evaluate,

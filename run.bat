@@ -12,7 +12,8 @@ for /f "usebackq tokens=1,* delims==" %%a in (".env") do (
 if "%1"=="" goto :usage
 if "%1"=="test"             goto :test
 if "%1"=="lint"             goto :lint
-if "%1"=="build-features"   goto :build_features
+if "%1"=="build-features"         goto :build_features
+if "%1"=="build-features-minio"   goto :build_features_minio
 if "%1"=="train"            goto :train
 if "%1"=="evaluate"         goto :evaluate
 if "%1"=="verify-artifacts" goto :verify_artifacts
@@ -23,6 +24,9 @@ if "%1"=="upload-raw"       goto :upload_raw
 if "%1"=="upload-processed" goto :upload_processed
 if "%1"=="upload-features"  goto :upload_features
 if "%1"=="upload-all"       goto :upload_all
+if "%1"=="start"            goto :start
+if "%1"=="spark-ingest"     goto :spark_ingest
+if "%1"=="spark-etl"        goto :spark_etl
 if "%1"=="up"               goto :up
 if "%1"=="up-build"         goto :up_build
 if "%1"=="down"             goto :down
@@ -43,16 +47,62 @@ goto :eof
 %PYTHON% -m py_compile src/config.py src/registry.py src/evaluation.py src/cli.py src/api/main.py src/api/schemas.py src/api/model_loader.py src/utils/manifest.py src/utils/integrity.py src/processing/build_features.py src/training/train_advanced.py
 goto :eof
 
+:start
+echo === Demarrage du projet FEM Surrogate ===
+echo.
+echo [1/5] Build et demarrage des services Docker...
+docker compose up -d --build
+if errorlevel 1 goto :err
+echo.
+echo [2/5] Attente de MinIO (buckets)...
+%PYTHON% scripts/wait_for_minio.py
+if errorlevel 1 goto :err
+echo.
+echo [3/5] Upload des donnees brutes vers MinIO...
+%PYTHON% scripts/upload_raw_to_minio.py
+if errorlevel 1 goto :err
+echo.
+echo [4/5] Pipeline ETL Spark (MinIO raw -^> processed)...
+docker compose --profile etl run --rm spark-etl
+if errorlevel 1 goto :err
+echo.
+echo [5/5] Feature engineering depuis MinIO...
+%CLI% build-features --use-minio
+if errorlevel 1 goto :err
+echo.
+echo === Projet demarre ===
+echo   API       : http://localhost:8000
+echo   Dashboard : http://localhost:8501
+echo   MLflow    : http://localhost:5000
+echo   MinIO     : http://localhost:9001
+echo   Grafana   : http://localhost:3000
+goto :eof
+
+:err
+echo ERREUR — arret du demarrage.
+exit /b 1
+
+:spark_ingest
+%CLI% spark-ingest
+goto :eof
+
+:spark_etl
+echo Upload des donnees brutes vers MinIO...
+%PYTHON% scripts/upload_raw_to_minio.py
+echo Lancement du pipeline ETL Spark dans Docker...
+docker compose --profile etl run --rm spark-etl
+goto :eof
+
 :build_features
 %CLI% build-features --input data/raw
 goto :eof
 
+:build_features_minio
+%CLI% build-features --use-minio
+goto :eof
+
 :train
-set MLFLOW_TRACKING_URI=http://localhost:5000
-set AWS_ACCESS_KEY_ID=minioadmin
-set AWS_SECRET_ACCESS_KEY=minioadmin
-set MLFLOW_S3_ENDPOINT_URL=http://localhost:9000
-%CLI% train --mlflow
+%CLI% train --mlflow --use-minio
 set _TRAIN_ERR=!errorlevel!
 if !_TRAIN_ERR!==0 (
     if defined SLACK_WEBHOOK_URL if not "!SLACK_WEBHOOK_URL!"=="" (
@@ -178,6 +228,13 @@ goto :eof
 
 :usage
 echo Usage: .\run ^<commande^>
+echo.
+echo  Demarrage complet (1 commande):
+echo   run start              -- build Docker + MinIO + ETL Spark (tout en 1)
+echo.
+echo  Pipeline Spark / Data Lake:
+echo   run spark-ingest       -- ETL Spark local (data/raw -^> data/processed)
+echo   run spark-etl          -- upload MinIO + ETL Spark dans Docker
 echo.
 echo  Pipeline ML (local):
 echo   run build-features     -- feature engineering
