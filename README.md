@@ -200,14 +200,6 @@ To use the already-trained models in `data/models/advanced/`:
   --case-json '{...}'
 ```
 
-Or with the legacy baseline prediction script:
-
-```powershell
-.venv\Scripts\python -m src.inference.predict_baseline `
-  --model-path data/processed/baseline_model.joblib `
-  --case-json '{...}'
-```
-
 ---
 
 ## MLflow (optional)

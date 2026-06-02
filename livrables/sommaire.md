@@ -26,6 +26,8 @@ de plaques métalliques sous traction.
 | `ml_bloc3.ipynb` | LightGBM, clustering, analyse statistique | [../notebooks/ml_bloc3.ipynb](../notebooks/ml_bloc3.ipynb) |
 | `dl_bloc4.ipynb` | CNN scratch, MobileNetV2, régression image | [../notebooks/dl_bloc4.ipynb](../notebooks/dl_bloc4.ipynb) |
 | `industria_bloc5.ipynb` | FastAPI, Docker, MLflow, Grafana | [../notebooks/industria_bloc5.ipynb](../notebooks/industria_bloc5.ipynb) |
+| `fem_surrogate_final_pipeline.ipynb` | Pipeline complet de référence (EDA → features → train → eval) | [../notebooks/fem_surrogate_final_pipeline.ipynb](../notebooks/fem_surrogate_final_pipeline.ipynb) |
+| `train_model.ipynb` | Entraînement exploratoire du surrogate LightGBM | [../notebooks/train_model.ipynb](../notebooks/train_model.ipynb) |
 
 ---
 

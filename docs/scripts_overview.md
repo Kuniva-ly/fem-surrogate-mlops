@@ -74,10 +74,6 @@ Idem pour plaques pleines (sans trou). Même API.
 Plaque avec trou à position variable (`hole_cx_ratio`, `hole_cy_ratio`).
 Inclut la validation que le trou reste dans les limites de la plaque.
 
-### `src/simulations/traction_plate_*_wide.py`
-
-Variantes à plages de paramètres élargies pour la couverture du domaine physique.
-
 ---
 
 ## Validation qualité
@@ -174,16 +170,6 @@ LightGBM avec transformation log des cibles + tuning Optuna.
 | max_von_mises_pa | val | 0.9925 | 0.0320 | 0.7422 | 3.8% |
 | max_von_mises_pa | test | 0.9939 | 0.0292 | 0.9407 | 3.8% |
 
-### `src/training/train_baseline.py` ← référence
-
-Pipeline sklearn : `OneHotEncoder` + `RandomForestRegressor` (MultiOutput).
-Inclut comparaison avec `DummyRegressor` et CV 5-fold.
-
-```powershell
-.venv\Scripts\python -m src.training.train_baseline `
-    --data-dir data/processed --out-dir data/processed --cv-folds 5
-```
-
 ---
 
 ## Évaluation (protocole figé)
@@ -261,16 +247,6 @@ Génère et vérifie des checksums SHA-256 pour tous les artefacts.
 Calcule automatiquement les 42 features si seuls les paramètres bruts sont fournis.
 Utilise la dernière version enregistrée dans le registre par défaut.
 
-### `src/inference/predict_baseline.py` ← baseline (legacy)
-
-Inférence avec le modèle RandomForest baseline.
-
-```powershell
-.venv\Scripts\python -m src.inference.predict_baseline `
-  --model-path data/processed/baseline_model.joblib `
-  --case-json '{...}'
-```
-
 ---
 
 ## Tests
@@ -301,10 +277,6 @@ $env:AWS_DEFAULT_REGION     = "us-east-1"
 .venv\Scripts\python -m src.training.train_advanced `
     --data-dir data/processed --out-dir data/models/advanced `
     --n-trials 60 --mlflow --mlflow-run-name lgbm-v2
-
-.venv\Scripts\python -m src.training.train_baseline `
-    --data-dir data/processed --out-dir data/processed `
-    --mlflow --mlflow-run-name rf-baseline --cv-folds 5
 ```
 
 ---

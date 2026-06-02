@@ -57,15 +57,15 @@ au lieu de plusieurs minutes de simulation numérique.
 
 | Target | R²(log) | RMSE(log) | MAPE | R² CV moyen |
 |--------|---------|-----------|------|-------------|
-| max_displacement_m | **0.9895** | 0.0575 | **6.1%** | 0.9871 |
-| max_von_mises_pa | **0.9913** | 0.0354 | **3.9%** | 0.9904 |
+| max_displacement_m | **0.9917** | 0.0493 | **5.1%** | 0.9871 |
+| max_von_mises_pa | **0.9939** | 0.0292 | **3.8%** | 0.9904 |
 
 ### Contrôle du sur-apprentissage
 
 | Target | R² train | R² val | R² test | Diagnostic |
 |--------|---------|--------|---------|------------|
-| max_displacement_m | 0.9966 | 0.9883 | 0.9895 | OK (écart < 0.01) |
-| max_von_mises_pa | 0.9978 | 0.9918 | 0.9913 | OK (écart < 0.01) |
+| max_displacement_m | 0.9966 | 0.9908 | 0.9917 | OK (écart < 0.01) |
+| max_von_mises_pa | 0.9978 | 0.9925 | 0.9939 | OK (écart < 0.01) |
 
 ---
 
@@ -92,8 +92,8 @@ au lieu de plusieurs minutes de simulation numérique.
 
 | Target | σ résidus | IC 95% | Couverture réelle |
 |--------|----------|--------|------------------|
-| max_displacement_m | 0.0575 | ±0.113 | **96.8%** |
-| max_von_mises_pa | 0.0354 | ±0.069 | **96.6%** |
+| max_displacement_m | 0.0493 | ±0.097 | **96.8%** |
+| max_von_mises_pa | 0.0292 | ±0.057 | **96.6%** |
 
 - **Test de sur-apprentissage** : |R²_train − R²_val| < 0.01 ✓
 

@@ -1,6 +1,6 @@
 # Générer un grand dataset
 
-Depuis la racine du projet `c:\Users\Administrateur\Desktop\Projet_fil_rouge`.
+Depuis la racine du projet `c:\Users\Administrateur\Desktop\fem-surrogate`.
 
 ---
 
@@ -60,21 +60,7 @@ docker compose exec fenics python -m src.simulations.traction_plate_moving_hole 
 
 ---
 
-## 5. Variantes plages étendues (wide)
-
-Pour couvrir un espace de paramètres plus large (extrapolation, robustesse) :
-
-```powershell
-.venv\Scripts\python -m src.simulations.traction_plate_with_hole_wide `
-    --n 5000 --seed 42 --out data/raw/sim_v1_wide
-
-.venv\Scripts\python -m src.simulations.traction_plate_without_hole_wide `
-    --n 5000 --seed 42 --out data/raw/sim_v1_without_hole_wide
-```
-
----
-
-## 6. Validation des données brutes
+## 5. Validation des données brutes
 
 ```powershell
 .venv\Scripts\python -m src.processing.validate --input data/raw/sim_v1
@@ -87,7 +73,7 @@ make validate-all
 
 ---
 
-## 7. Feature engineering + splits ML
+## 6. Feature engineering + splits ML
 
 ```powershell
 # Via CLI — lit configs/training.yaml (seed, ratios, stratégie)
@@ -102,7 +88,7 @@ make validate-all
 
 ---
 
-## 8. Entraînement
+## 7. Entraînement
 
 ```powershell
 # Complet avec Optuna (60 essais par défaut — lit configs/training.yaml)
@@ -117,7 +103,7 @@ make validate-all
 
 ---
 
-## 9. Upload vers MinIO (non implémenté)
+## 8. Upload vers MinIO (non implémenté)
 
 > L'upload MinIO n'est pas encore implémenté.
 > Pour l'ajouter, créer `src/ingestion/upload_to_minio.py` avec l'interface :
@@ -133,7 +119,7 @@ make validate-all
 
 ---
 
-## 10. Convention feature store
+## 9. Convention feature store
 
 | Dossier | Contenu | Décision |
 |---|---|---|
