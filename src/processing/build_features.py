@@ -48,17 +48,10 @@ def _read_raw(input_dir: Path) -> pd.DataFrame:
 
 def _upload_features_to_minio(out_dir: Path, features_dir: Path) -> None:
     """Upload splits et feature store vers le bucket MinIO features."""
-    import os
-    import boto3
+    from src.utils.s3_client import get_s3_client, BUCKET_FEATURES
 
-    endpoint   = os.getenv("MLFLOW_S3_ENDPOINT_URL", "http://localhost:9000")
-    access_key = os.getenv("AWS_ACCESS_KEY_ID",      "minioadmin")
-    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY",  "minioadmin")
-    bucket     = os.getenv("MINIO_BUCKET_FEATURES",  "features")
-
-    s3 = boto3.client("s3", endpoint_url=endpoint,
-                      aws_access_key_id=access_key,
-                      aws_secret_access_key=secret_key)
+    s3 = get_s3_client()
+    bucket = BUCKET_FEATURES
 
     files = [
         out_dir / "train.parquet",
@@ -76,18 +69,11 @@ def _upload_features_to_minio(out_dir: Path, features_dir: Path) -> None:
 
 def _download_warehouse_from_minio(local_dir: Path) -> Path:
     """Download warehouse.parquet from MinIO processed-simulations to local cache."""
-    import os
-    import boto3
+    from src.utils.s3_client import get_s3_client, BUCKET_PROCESSED
 
-    endpoint   = os.getenv("MLFLOW_S3_ENDPOINT_URL", "http://localhost:9000")
-    access_key = os.getenv("AWS_ACCESS_KEY_ID",      "minioadmin")
-    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY",  "minioadmin")
-    bucket     = os.getenv("MINIO_BUCKET_PROCESSED", "processed-simulations")
-    prefix     = "warehouse.parquet/"
-
-    s3 = boto3.client("s3", endpoint_url=endpoint,
-                      aws_access_key_id=access_key,
-                      aws_secret_access_key=secret_key)
+    s3 = get_s3_client()
+    bucket = BUCKET_PROCESSED
+    prefix = "warehouse.parquet/"
 
     response = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
     objects  = [o for o in response.get("Contents", []) if o["Key"].endswith(".parquet")]

@@ -76,6 +76,67 @@ Inclut la validation que le trou reste dans les limites de la plaque.
 
 ---
 
+## Utilitaires partagés
+
+### `src/utils/s3_client.py`
+
+Point d'entrée unique pour toutes les connexions MinIO/S3. Centralise endpoint,
+access key et secret key lus depuis les variables d'environnement.
+**Ne jamais instancier `boto3.client()` directement dans le code applicatif.**
+
+```python
+from src.utils.s3_client import get_s3_client, BUCKET_FEATURES, BUCKET_PROCESSED
+
+s3 = get_s3_client()
+s3.upload_file(str(local_path), BUCKET_FEATURES, key)
+```
+
+Variables d'environnement lues :
+`MLFLOW_S3_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+`MINIO_BUCKET_RAW`, `MINIO_BUCKET_PROCESSED`, `MINIO_BUCKET_FEATURES`, `MINIO_BUCKET_ARTIFACTS`.
+
+---
+
+## Ingestion MinIO
+
+### `scripts/wait_for_minio.py`
+
+Attend que MinIO soit accessible avant de lancer des scripts locaux.
+**Utile uniquement hors Docker** : quand MinIO tourne dans un conteneur et qu'on exécute
+`upload_raw_to_minio.py` depuis la machine hôte. Dans Docker Compose, l'attente est gérée
+nativement via `healthcheck` + `depends_on: condition: service_healthy`.
+
+```powershell
+.venv\Scripts\python scripts/wait_for_minio.py   # attend jusqu'à 60s, exit 0 si prêt
+```
+
+### `scripts/upload_raw_to_minio.py`
+
+Upload les fichiers `data/raw/*.parquet` vers le bucket MinIO `raw-simulations` (boto3).
+Étape préalable au Spark ETL quand les simulations ont été générées en local.
+
+```powershell
+# S'assurer que MinIO est prêt (si hors Docker)
+.venv\Scripts\python scripts/wait_for_minio.py
+
+.venv\Scripts\python scripts/upload_raw_to_minio.py
+.venv\Scripts\python scripts/upload_raw_to_minio.py --raw-dir data/raw --endpoint http://localhost:9000
+```
+
+### `src/processing/spark_ingest.py`
+
+ETL PySpark complet : lit `s3a://raw-simulations` (ou local), transforme, écrit dans `s3a://processed-simulations`.
+
+```powershell
+# Local
+.venv\Scripts\python -m src.processing.spark_ingest --raw-dir data/raw --wh-dir data/processed
+
+# MinIO (Docker stack requis)
+.venv\Scripts\python -m src.processing.spark_ingest --use-minio
+```
+
+---
+
 ## Validation qualité
 
 ### `src/processing/validate.py`
@@ -161,6 +222,28 @@ LightGBM avec transformation log des cibles + tuning Optuna.
     --data-dir data/processed --out-dir data/models/advanced --n-trials 60
 ```
 
+**Espace de recherche Optuna :**
+
+| Hyperparamètre | Plage | Note |
+|---|---|---|
+| `n_estimators` | 400–2000 | |
+| `learning_rate` | 0.01–0.2 (log) | |
+| `num_leaves` | 31–255 | |
+| `max_depth` | **8–16** | Élargi (était 4–12) |
+| `min_child_samples` | 10–100 | |
+| `subsample` | 0.6–1.0 | |
+| `colsample_bytree` | 0.5–1.0 | |
+| `reg_alpha`, `reg_lambda` | 1e-8–10 (log) | |
+
+**Paramètres par défaut (`n_trials=0`)** — chargés depuis `configs/default_hyperparameters.yaml`
+(remplace les valeurs hardcodées, configurable via `DEFAULT_PARAMS_PATH`).
+
+**Feature importance** — exportée automatiquement pour chaque cible :
+- `feature_importance_split_<target>.csv`
+- `feature_importance_gain_<target>.csv`
+
+Enregistrées dans le registre et loguées dans MLflow.
+
 **Performances actuelles (dataset complet ~50k lignes) :**
 
 | Cible | Split | R²(log) | RMSE(log) | R²(orig) | MAPE |
@@ -187,7 +270,7 @@ Métriques canoniques : `r2_log`, `rmse_log`, `mae_log`, `r2_orig`, `rmse_orig`,
 
 ### `src/registry.py`
 
-Registre local versionné avec pointeur `latest`.
+Registre local versionné avec pointeur `latest` (écriture atomique via rename).
 
 ```
 artifacts/models/lgbm_surrogate/
@@ -252,14 +335,15 @@ Utilise la dernière version enregistrée dans le registre par défaut.
 ## Tests
 
 ```powershell
-.venv\Scripts\python -m unittest discover -s tests -p "test_*.py" -v
-# Ran 61 tests — OK
+.\run test
+# ou : .venv\Scripts\python -m pytest tests/ -v
+# Ran 64 tests — OK
 ```
 
 | Fichier | Tests | Couverture |
 |---|---|---|
 | `tests/test_config.py` | 13 | Chargement YAML, validation, env var |
-| `tests/test_features.py` | 19 | Formules physiques, splits, nulls |
+| `tests/test_features.py` | 21 | Formules physiques, splits, nulls |
 | `tests/test_registry.py` | 14 | Versionnement, copie, roundtrip joblib |
 | `tests/test_integrity.py` | 9 | SHA-256, falsification, fichier manquant |
 | `tests/test_smoke.py` | 6 | Pipeline E2E + reproductibilité |

@@ -1,6 +1,6 @@
 # Livrable Bloc 4 — Deep Learning sur Données Non Structurées
 
-**Notebook :** [dl_bloc4.ipynb](../notebooks/dl_bloc4.ipynb)
+**Notebook :** [04_dl_bloc4.ipynb](../notebooks/04_dl_bloc4.ipynb)
 **Retour au sommaire :** [Sommaire](./sommaire.md)
 
 ---
@@ -77,10 +77,13 @@ Input (64, 64, 3)
 
 | Métrique | Valeur |
 |----------|--------|
-| Test Accuracy | **97.6%** |
-| Test Loss | 0.0897 |
+| Test Accuracy | **98.5%** |
+| Test Loss | 0.0536 |
+| Val Accuracy (best epoch) | 98.2% |
+| Val Loss (best epoch) | 0.0622 |
 | Paramètres totaux | 127 939 |
-| Epochs | early stopping (patience=5) |
+| Epochs | 29 entraînées, meilleur à l'époque 24 (EarlyStopping patience=5) |
+| ReduceLROnPlateau | déclenché aux époques 11 (→ 5e-4), 19 (→ 2.5e-4), 27 (→ 1.25e-4) |
 
 ---
 
@@ -90,12 +93,15 @@ Input (64, 64, 3)
 - Phase 1 : tête seule entraînée (164 355 paramètres)
 - Phase 2 : fine-tuning 30 dernières couches (lr=1e-4) — 1 690 755 paramètres
 
-| Métrique | Valeur |
-|----------|--------|
-| Test Accuracy | **96.4%** |
-| Test Loss | 0.1109 |
+| Métrique | Phase 1 (tête seule) | Phase 2 (fine-tuning) |
+|----------|----------------------|-----------------------|
+| Test Accuracy | — | **97.0%** |
+| Test Loss | — | 0.1021 |
+| Val Accuracy (best) | 94.1% (époque 15) | 96.8% (époque 10) |
+| Val Loss (best) | 0.1749 | 0.0962 |
+| Epochs | 15 / 15 | 15 entraînées, best époque 10 (EarlyStopping) |
 
-**Meilleur modèle : CNN from scratch** (97.6% > 96.4%)
+**Meilleur modèle : CNN from scratch** (98.5% > 97.0%)
 
 ---
 
@@ -105,12 +111,13 @@ Input (64, 64, 3)
 
 | Classe | Précision | Rappel | F1 | Support |
 |--------|-----------|--------|-----|---------|
-| with_hole | 0.94 | 1.00 | 0.97 | 3 096 |
-| with_hole_moving | 1.00 | 0.94 | 0.97 | 3 044 |
+| with_hole | 0.97 | 1.00 | 0.98 | 3 096 |
+| with_hole_moving | 0.99 | 0.97 | 0.98 | 3 044 |
 | without_hole | 1.00 | 1.00 | 1.00 | 1 566 |
+| **macro avg** | **0.99** | **0.99** | **0.99** | **7 706** |
 | **weighted avg** | **0.98** | **0.98** | **0.98** | **7 706** |
 
-Erreurs de classification : **187 / 7 706 (2.4%)**
+Erreurs de classification : **119 / 7 706 (1.5%)**
 
 ---
 
@@ -118,19 +125,27 @@ Erreurs de classification : **187 / 7 706 (2.4%)**
 
 Architecture : même backbone CNN scratch, tête `Dense(2, linear)` (multi-output)
 
+| Métrique entraînement | Valeur |
+|-----------------------|--------|
+| Epochs | 29 entraînées, meilleur à l'époque 23 (EarlyStopping patience=6) |
+| ReduceLROnPlateau | déclenché aux époques 8, 12, 17, 26, 29 |
+| Val loss (best) | 0.1894 | Val MAE (best) | 0.3277 |
+
+### Résultats test set
+
 | Target | R²(log) | RMSE(log) | MAPE |
 |--------|---------|-----------|------|
-| max_von_mises_pa | **0.255** | 0.328 | 76.6% |
-| max_displacement_m | **0.076** | 0.539 | 185.6% |
+| max_von_mises_pa | **0.279** | 0.322 | 83.2% |
+| max_displacement_m | **0.083** | 0.537 | 170.2% |
 
 ### Comparaison CNN vs LightGBM
 
-| Modèle | Target | R²(log) | MAPE |
-|--------|--------|---------|------|
-| CNN Regression (pixels) | max_von_mises_pa | 0.255 | 76.6% |
-| CNN Regression (pixels) | max_displacement_m | 0.076 | 185.6% |
-| **LightGBM (42 features)** | max_von_mises_pa | **0.993** | **3.9%** |
-| **LightGBM (42 features)** | max_displacement_m | **0.990** | **6.1%** |
+| Modèle | Target | R²(log) | RMSE(log) | MAPE |
+|--------|--------|---------|-----------|------|
+| CNN Regression (pixels) | max_von_mises_pa | 0.279 | 0.322 | 83.2% |
+| CNN Regression (pixels) | max_displacement_m | 0.083 | 0.537 | 170.2% |
+| **LightGBM (42 features)** | max_von_mises_pa | **0.983** | **0.028** | **2.8%** |
+| **LightGBM (42 features)** | max_displacement_m | **0.926** | **0.042** | **4.0%** |
 
 > Le CNN prédit depuis les couleurs absolues (normalisation globale). Sa faible
 > performance sur le déplacement s'explique par l'ambiguïté : deux images identiques

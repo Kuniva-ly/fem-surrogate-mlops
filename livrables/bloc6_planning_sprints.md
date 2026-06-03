@@ -45,7 +45,7 @@ au suivant.
 | Pipeline ETL Apache Spark (Extract → Transform → Load) | 3 | ✅ Done |
 | Pseudonymisation RGPD SHA-256 | 1 | ✅ Done |
 | Validation Data Warehouse (0 doublon, 0 null critique) | 1 | ✅ Done |
-| Notebook `infrastructure_bloc1.ipynb` | 2 | ✅ Done |
+| Notebook `01_infrastructure_bloc1.ipynb` | 2 | ✅ Done |
 
 **Critère de validation :** Data Warehouse contient 61 550 simulations propres dans MinIO
 
@@ -62,7 +62,7 @@ au suivant.
 | Matrice de corrélations Pearson | 1 | ✅ Done |
 | Analyses Spark distribuées (C2.3) | 2 | ✅ Done |
 | Visualisations Plotly interactives | 2 | ✅ Done |
-| Notebook `eda_bloc2.ipynb` | 1 | ✅ Done |
+| Notebook `02_eda_bloc2.ipynb` | 1 | ✅ Done |
 
 **Critère de validation :** Les paramètres influents identifiés (traction → Von Mises, E → déplacement)
 
@@ -81,7 +81,7 @@ au suivant.
 | Test sur-entraînement/sous-entraînement | 1 | ✅ Done |
 | Clustering KMeans + DBSCAN sur images Kirsch | 2 | ✅ Done |
 | Analyse résidus + KS test + IC 95% | 2 | ✅ Done |
-| Notebook `ml_bloc3.ipynb` | 1 | ✅ Done |
+| Notebook `03_ml_bloc3.ipynb` | 1 | ✅ Done |
 
 **Critère de validation :** R² > 0.95 sur test set pour les 2 cibles
 
@@ -99,7 +99,7 @@ au suivant.
 | Augmentation données (flip, rotation, zoom) | 1 | ✅ Done |
 | Évaluation : accuracy, F1, matrice confusion | 1 | ✅ Done |
 | CNN Regression + comparaison LightGBM | 2 | ✅ Done |
-| Notebook `dl_bloc4.ipynb` | 1 | ✅ Done |
+| Notebook `04_dl_bloc4.ipynb` | 1 | ✅ Done |
 
 **Critère de validation :** Accuracy classification > 90% (réalisé : 97.9%)
 
@@ -118,7 +118,7 @@ au suivant.
 | Dashboard Streamlit + analyse sensibilité | 3 | ✅ Done |
 | Grafana alertes Slack (latence P95 > 500 ms) | 1 | ✅ Done |
 | Manifeste d'intégrité (git hash + SHA-256) | 1 | ✅ Done |
-| Notebook `industria_bloc5.ipynb` | 1 | ✅ Done |
+| Notebook `05_industria_bloc5.ipynb` | 1 | ✅ Done |
 
 **Critère de validation :** Stack opérationnelle — tous services `UP` dans `docker compose ps`
 

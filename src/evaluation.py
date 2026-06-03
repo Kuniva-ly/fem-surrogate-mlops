@@ -44,18 +44,26 @@ def compute_metrics(
     y_true_log: np.ndarray,
     y_pred_log: np.ndarray,
     y_true_orig: np.ndarray,
+    denorm_factors: np.ndarray | None = None,
 ) -> dict[str, float]:
     """Compute canonical evaluation metrics.
 
     Args:
-        y_true_log:  Ground truth in log10 space.
-        y_pred_log:  Model predictions in log10 space.
-        y_true_orig: Ground truth in original physical space.
+        y_true_log:     Ground truth in log10 space (normalised if applicable).
+        y_pred_log:     Model predictions in log10 space (normalised if applicable).
+        y_true_orig:    Ground truth in original physical space.
+        denorm_factors: Per-row normalisation denominators (e.g. traction_pa or
+                        delta_theory). When provided, predictions are back-transformed
+                        via ``10^pred * denorm_factors`` to recover physical units.
+                        When None, ``10^pred`` is used directly.
 
     Returns:
         Dict with keys: r2_log, rmse_log, mae_log, r2_orig, rmse_orig, mape.
     """
-    y_pred_orig = 10.0 ** y_pred_log
+    if denorm_factors is not None:
+        y_pred_orig = (10.0 ** y_pred_log) * denorm_factors
+    else:
+        y_pred_orig = 10.0 ** y_pred_log
     return {
         "r2_log":    float(r2_score(y_true_log,  y_pred_log)),
         "rmse_log":  float(np.sqrt(mean_squared_error(y_true_log,  y_pred_log))),

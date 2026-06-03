@@ -82,8 +82,11 @@ class ModelRegistry:
                 encoding="utf-8",
             )
 
-        # Update the "latest" pointer
-        (self.root / "latest.txt").write_text(version, encoding="utf-8")
+        # Update the "latest" pointer — atomic write (write-then-rename)
+        # avoids a corrupt latest.txt if the process is interrupted mid-write.
+        _tmp = self.root / ".latest.tmp"
+        _tmp.write_text(version, encoding="utf-8")
+        _tmp.replace(self.root / "latest.txt")
 
         print(f"[registry] Registered {self.model_name}  version={version}  -> {dest}")
         return version, dest

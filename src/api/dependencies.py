@@ -8,15 +8,27 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 _security = HTTPBasic()
-_API_USER = os.environ.get("API_USERNAME", "admin")
-_API_PASS = os.environ.get("API_PASSWORD", "mdp123")
 
 
 def require_auth(credentials: HTTPBasicCredentials = Depends(_security)) -> None:
-    """HTTP Basic auth guard — raises 401 on bad credentials."""
+    """HTTP Basic auth guard — raises 401 on bad credentials.
+
+    Credentials are read from API_USERNAME / API_PASSWORD environment variables.
+    Both variables are mandatory; the server raises RuntimeError at the first
+    authenticated request if either is absent.
+    """
+    api_user = os.environ.get("API_USERNAME")
+    api_pass = os.environ.get("API_PASSWORD")
+
+    if not api_user or not api_pass:
+        raise RuntimeError(
+            "API_USERNAME and API_PASSWORD environment variables must be set. "
+            "Add them to your .env file (see .env.example)."
+        )
+
     ok = (
-        secrets.compare_digest(credentials.username, _API_USER)
-        and secrets.compare_digest(credentials.password, _API_PASS)
+        secrets.compare_digest(credentials.username, api_user)
+        and secrets.compare_digest(credentials.password, api_pass)
     )
     if not ok:
         raise HTTPException(

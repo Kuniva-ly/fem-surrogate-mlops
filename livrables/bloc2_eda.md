@@ -1,6 +1,6 @@
 # Livrable Bloc 2 — Analyse Exploratoire des Données (EDA)
 
-**Notebook :** [eda_bloc2.ipynb](../notebooks/eda_bloc2.ipynb)
+**Notebook :** [02_eda_bloc2.ipynb](../notebooks/02_eda_bloc2.ipynb)
 **Retour au sommaire :** [Sommaire](./sommaire.md)
 
 ---

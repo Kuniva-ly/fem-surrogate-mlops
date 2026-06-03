@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -130,9 +131,17 @@ def _resolve_model_dir() -> Path:
 
 
 def _download_from_mlflow(tracking_uri: str) -> Path:
-    """Download the latest run's .joblib artifacts from MLflow/MinIO to a temp dir."""
+    """Download the latest run's .joblib artifacts from MLflow/MinIO to a temp dir.
+
+    Retries up to MLFLOW_DOWNLOAD_RETRIES times (default 3) with exponential
+    backoff. Timeout is set via MLFLOW_HTTP_REQUEST_TIMEOUT (default 30 s).
+    """
     import mlflow
     from mlflow.tracking import MlflowClient
+
+    max_retries = int(os.environ.get("MLFLOW_DOWNLOAD_RETRIES", "3"))
+    timeout_s   = int(os.environ.get("MLFLOW_HTTP_REQUEST_TIMEOUT", "30"))
+    os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", str(timeout_s))
 
     experiment_name = os.environ.get("MLFLOW_EXPERIMENT_NAME", "fem-surrogate")
     run_id = os.environ.get("MLFLOW_RUN_ID")
@@ -157,7 +166,28 @@ def _download_from_mlflow(tracking_uri: str) -> Path:
     if dst.exists():
         logger.info("Using cached MLflow artifacts — run=%s @ %s", run_id, dst)
         return dst
+
     dst.mkdir(parents=True, exist_ok=True)
-    client.download_artifacts(run_id, ".", str(dst))
-    logger.info("Downloaded MLflow artifacts — run=%s → %s", run_id, dst)
-    return dst
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(
+                "Downloading MLflow artifacts (attempt %d/%d) — run=%s timeout=%ds",
+                attempt, max_retries, run_id, timeout_s,
+            )
+            client.download_artifacts(run_id, ".", str(dst))
+            logger.info("Downloaded MLflow artifacts — run=%s → %s", run_id, dst)
+            return dst
+        except Exception as exc:
+            if attempt == max_retries:
+                logger.error(
+                    "MLflow download failed after %d attempts: %s", max_retries, exc
+                )
+                raise
+            wait = 2 ** attempt
+            logger.warning(
+                "MLflow download attempt %d/%d failed: %s — retrying in %ds",
+                attempt, max_retries, exc, wait,
+            )
+            time.sleep(wait)
+
+    raise RuntimeError("Unreachable")

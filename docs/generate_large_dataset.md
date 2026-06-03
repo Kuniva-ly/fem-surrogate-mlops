@@ -103,23 +103,52 @@ make validate-all
 
 ---
 
-## 8. Upload vers MinIO (non implémenté)
+## 8. Upload des données brutes vers MinIO
 
-> L'upload MinIO n'est pas encore implémenté.
-> Pour l'ajouter, créer `src/ingestion/upload_to_minio.py` avec l'interface :
->
-> ```powershell
-> .venv\Scripts\python -m src.ingestion.upload_to_minio `
->     --local-path data/raw/sim_v1/date=YYYY-MM-DD `
->     --bucket raw-simulations `
->     --prefix with_hole/sim_v1/date=YYYY-MM-DD
-> ```
->
-> Dépendances : `pip install boto3`. Variables d'environnement : voir `.env.example`.
+Copie les fichiers `data/raw/*.parquet` générés localement vers le bucket `raw-simulations`.
+
+```powershell
+# Valeurs par défaut (minioadmin / localhost:9000)
+.venv\Scripts\python scripts/upload_raw_to_minio.py
+
+# Paramètres explicites
+.venv\Scripts\python scripts/upload_raw_to_minio.py `
+    --raw-dir data/raw --endpoint http://localhost:9000
+```
+
+Variables d'environnement (optionnelles) :
+```powershell
+$env:MLFLOW_S3_ENDPOINT_URL = "http://localhost:9000"
+$env:AWS_ACCESS_KEY_ID      = "minioadmin"
+$env:AWS_SECRET_ACCESS_KEY  = "minioadmin"
+```
 
 ---
 
-## 9. Convention feature store
+## 9. ETL Spark + ingestion MinIO
+
+`src/processing/spark_ingest.py` gère l'ETL complet et l'écriture vers MinIO.
+
+```powershell
+# Mode local (data/raw → data/processed/warehouse.parquet)
+.venv\Scripts\python -m src.processing.spark_ingest `
+    --raw-dir data/raw --wh-dir data/processed
+
+# Mode MinIO (s3a://raw-simulations → s3a://processed-simulations)
+# Nécessite le Docker stack actif (make up)
+.venv\Scripts\python -m src.processing.spark_ingest --use-minio
+```
+
+Variables d'environnement (optionnelles, sinon valeurs par défaut `minioadmin`) :
+```powershell
+$env:MLFLOW_S3_ENDPOINT_URL = "http://localhost:9000"
+$env:AWS_ACCESS_KEY_ID      = "minioadmin"
+$env:AWS_SECRET_ACCESS_KEY  = "minioadmin"
+```
+
+---
+
+## 10. Convention feature store
 
 | Dossier | Contenu | Décision |
 |---|---|---|

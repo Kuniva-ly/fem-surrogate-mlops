@@ -1,6 +1,6 @@
 # Livrable Bloc 1 — Infrastructure & Data Lake
 
-**Notebook :** [infrastructure_bloc1.ipynb](../notebooks/infrastructure_bloc1.ipynb)
+**Notebook :** [01_infrastructure_bloc1.ipynb](../notebooks/01_infrastructure_bloc1.ipynb)
 **Retour au sommaire :** [Sommaire](./sommaire.md)
 
 ---

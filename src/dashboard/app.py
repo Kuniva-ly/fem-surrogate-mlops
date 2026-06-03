@@ -26,11 +26,10 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-API_URL  = os.environ.get("API_URL",      "http://localhost:8000").rstrip("/")
-_API_AUTH = (
-    os.environ.get("API_USERNAME", "admin"),
-    os.environ.get("API_PASSWORD", "mdp123"),
-)
+API_URL  = os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
+_api_username = os.environ.get("API_USERNAME")
+_api_password = os.environ.get("API_PASSWORD")
+_API_AUTH = (_api_username or "", _api_password or "")
 
 # Yield strength defaults per material (MPa)
 _YIELD_DEFAULTS = {"steel": 250.0, "aluminum": 270.0, "titanium": 880.0}
@@ -53,6 +52,15 @@ st.set_page_config(
     page_icon="⚙️",
     layout="wide",
 )
+
+# Guard — credentials must be set via environment variables
+if not _api_username or not _api_password:
+    st.error(
+        "**Configuration manquante** : les variables d'environnement "
+        "`API_USERNAME` et `API_PASSWORD` doivent être définies. "
+        "Copiez `.env.example` vers `.env` et renseignez ces valeurs."
+    )
+    st.stop()
 
 # Header
 st.title("⚙️ FEM Surrogate Model — Interactive Explorer")

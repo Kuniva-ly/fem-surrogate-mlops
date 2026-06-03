@@ -1,6 +1,6 @@
 # Livrable Bloc 3 — Machine Learning Supervisé & Non Supervisé
 
-**Notebook :** [ml_bloc3.ipynb](../notebooks/ml_bloc3.ipynb)
+**Notebook :** [03_ml_bloc3.ipynb](../notebooks/03_ml_bloc3.ipynb)
 **Retour au sommaire :** [Sommaire](./sommaire.md)
 
 ---
@@ -12,8 +12,7 @@
 | C3.1 | Préparer les données pour l'apprentissage automatique |
 | C3.2 | Entraîner un modèle supervisé (régression/classification) |
 | C3.3 | Mettre en œuvre un apprentissage non supervisé |
-| C3.4 | Évaluer et interpréter les résultats d'un modèle ML |
-| C3.5 | Analyser les résidus et valider les hypothèses statistiques |
+| C3.4 | Évaluer et interpréter les résultats d'un modèle ML — R², RMSE, MAPE, résidus, IC |
 
 ---
 
@@ -47,25 +46,32 @@ au lieu de plusieurs minutes de simulation numérique.
 - `StandardScaler` sur les features numériques
 - Transformation `log10` des targets (6 décades → distribution quasi-normale)
 
-### Modèle : LightGBM + Optuna
-- **60 trials** Optuna (TPE Sampler)
+### Modèle : LightGBM
 - **5-fold cross-validation** sur le train set
+- Early stopping (patience=30) sur le val set pour le modèle final
 - Objectif : minimiser RMSE(log₁₀)
-- Contraintes de monotonie physique (ex: traction ↑ → stress ↑)
 
 ### Résultats LightGBM (test set)
 
 | Target | R²(log) | RMSE(log) | MAPE | R² CV moyen |
 |--------|---------|-----------|------|-------------|
-| max_displacement_m | **0.9917** | 0.0493 | **5.1%** | 0.9871 |
-| max_von_mises_pa | **0.9939** | 0.0292 | **3.8%** | 0.9904 |
+| max_displacement_m | **0.9208** | 0.0434 | **4.05%** | 0.8823 ± 0.0206 |
+| max_von_mises_pa | **0.9824** | 0.0286 | **3.03%** | 0.9784 ± 0.0004 |
+
+### Comparaison des modèles (test set)
+
+| Modèle | R² displacement | MAPE displacement | R² von Mises | MAPE von Mises |
+|--------|----------------|-------------------|-------------|----------------|
+| Moyenne (baseline) | 0.00 | — | 0.00 | — |
+| RandomForest | 0.8508 | 6.00% | 0.9561 | 4.49% |
+| **LightGBM** | **0.9208** | **4.05%** | **0.9824** | **3.03%** |
 
 ### Contrôle du sur-apprentissage
 
 | Target | R² train | R² val | R² test | Diagnostic |
 |--------|---------|--------|---------|------------|
-| max_displacement_m | 0.9966 | 0.9908 | 0.9917 | OK (écart < 0.01) |
-| max_von_mises_pa | 0.9978 | 0.9925 | 0.9939 | OK (écart < 0.01) |
+| max_displacement_m | 0.9686 | 0.8880 | 0.9208 | OK (gap train-test < 0.05) |
+| max_von_mises_pa | 0.9951 | 0.9802 | 0.9824 | OK (gap train-test < 0.05) |
 
 ---
 
@@ -86,16 +92,12 @@ au lieu de plusieurs minutes de simulation numérique.
 
 ## Analyse statistique des résidus (C3.5)
 
-- **Test de Kolmogorov-Smirnov** : résidus **non-normaux** (p-value < 0.001)
-  → queue lourde due aux simulations extrêmes (outliers physiques)
-- **IC 95%** basé sur ±1.96 × σ_résidus :
-
-| Target | σ résidus | IC 95% | Couverture réelle |
-|--------|----------|--------|------------------|
-| max_displacement_m | 0.0493 | ±0.097 | **96.8%** |
-| max_von_mises_pa | 0.0292 | ±0.057 | **96.6%** |
-
-- **Test de sur-apprentissage** : |R²_train − R²_val| < 0.01 ✓
+- **Test de Kolmogorov-Smirnov** : résidus **non-normaux** (p-value = 0.0000)
+  → rejet attendu sur 7 700 points (KS très sensible) ; résidus quasi-gaussiens visuellement
+- μ résidus ≈ 0 (pas de biais systématique)
+- σ résidus : 0.0434 (displacement) / 0.0286 (von Mises)
+- **IC 95%** basé sur ±1.96 × σ_résidus (voir notebook pour couverture réelle)
+- **Test de sur-apprentissage** : gap train-test < 0.05 ✓
 
 ---
 

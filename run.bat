@@ -12,9 +12,11 @@ for /f "usebackq tokens=1,* delims==" %%a in (".env") do (
 if "%1"=="" goto :usage
 if "%1"=="test"             goto :test
 if "%1"=="lint"             goto :lint
+if "%1"=="pipeline-local"         goto :pipeline_local
 if "%1"=="build-features"         goto :build_features
 if "%1"=="build-features-minio"   goto :build_features_minio
 if "%1"=="train"            goto :train
+if "%1"=="train-local"      goto :train_local
 if "%1"=="evaluate"         goto :evaluate
 if "%1"=="verify-artifacts" goto :verify_artifacts
 if "%1"=="validate"         goto :validate
@@ -44,7 +46,7 @@ goto :usage
 goto :eof
 
 :lint
-%PYTHON% -m py_compile src/config.py src/registry.py src/evaluation.py src/cli.py src/api/main.py src/api/schemas.py src/api/model_loader.py src/utils/manifest.py src/utils/integrity.py src/processing/build_features.py src/training/train_advanced.py
+%PYTHON% -m py_compile src/config.py src/registry.py src/evaluation.py src/cli.py src/api/main.py src/api/schemas.py src/api/model_loader.py src/utils/manifest.py src/utils/integrity.py src/utils/s3_client.py src/processing/build_features.py src/training/train_advanced.py
 goto :eof
 
 :start
@@ -93,6 +95,23 @@ echo Lancement du pipeline ETL Spark dans Docker...
 docker compose --profile etl run --rm spark-etl
 goto :eof
 
+:pipeline_local
+echo === Pipeline ML local (sans Docker) ===
+echo [1/4] Feature engineering...
+%CLI% build-features --input data/raw
+if errorlevel 1 goto :err
+echo [2/4] Entrainement LightGBM...
+%CLI% train
+if errorlevel 1 goto :err
+echo [3/4] Evaluation...
+%CLI% evaluate
+if errorlevel 1 goto :err
+echo [4/4] Verification artefacts...
+%CLI% verify-artifacts
+if errorlevel 1 goto :err
+echo === Pipeline local termine ===
+goto :eof
+
 :build_features
 %CLI% build-features --input data/raw
 goto :eof
@@ -113,6 +132,10 @@ if !_TRAIN_ERR!==0 (
         powershell -Command "Invoke-RestMethod -Uri '!SLACK_WEBHOOK_URL!' -Method Post -ContentType 'application/json' -Body '{\"text\":\"Training echoue - verifier les logs\"}'" >nul 2>&1
     )
 )
+goto :eof
+
+:train_local
+%CLI% train
 goto :eof
 
 :evaluate
@@ -236,9 +259,11 @@ echo  Pipeline Spark / Data Lake:
 echo   run spark-ingest       -- ETL Spark local (data/raw -^> data/processed)
 echo   run spark-etl          -- upload MinIO + ETL Spark dans Docker
 echo.
-echo  Pipeline ML (local):
-echo   run build-features     -- feature engineering
-echo   run train              -- entrainer le modele (avec MLflow)
+echo  Pipeline ML (local, sans Docker):
+echo   run pipeline-local     -- build-features + train + evaluate + verify (tout en 1)
+echo   run build-features     -- feature engineering uniquement
+echo   run train-local        -- entrainement sans MLflow ni MinIO
+echo   run train              -- entrainement avec MLflow et MinIO (Docker requis)
 echo   run evaluate           -- evaluer le modele
 echo   run verify-artifacts   -- verifier les checksums
 echo.

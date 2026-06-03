@@ -35,6 +35,14 @@ services:
   minio:
     image: minio/minio:RELEASE.2024-04-06T05-26-02Z
     <<: *default-restart
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER:                ${MINIO_ROOT_USER:-minioadmin}
@@ -94,6 +102,14 @@ services:
   postgres:
     image: postgres:16-alpine
     <<: *default-restart
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
     environment:
       POSTGRES_DB:       ${POSTGRES_DB:-mlflow}
       POSTGRES_USER:     ${POSTGRES_USER:-mlflow}
@@ -114,6 +130,14 @@ services:
       context: .
       dockerfile: Dockerfile.mlflow
     <<: *default-restart
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
     depends_on:
       postgres:
         condition: service_healthy
@@ -147,6 +171,14 @@ services:
       context: .
       dockerfile: Dockerfile.api
     <<: *default-restart
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
     environment:
       REGISTRY_DIR:          /app/artifacts/models
       MODEL_NAME:            ${MODEL_NAME:-lgbm_surrogate}
@@ -182,6 +214,14 @@ services:
       context: .
       dockerfile: Dockerfile.dashboard
     <<: *default-restart
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
     environment:
       API_URL: http://api:8000
     ports:

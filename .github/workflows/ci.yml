@@ -22,6 +22,18 @@ jobs:
       - name: Install dev dependencies
         run: pip install -r requirements/dev.txt
 
+      - name: Lint (ruff)
+        run: ruff check src/ tests/
+
+      - name: Type check (mypy)
+        run: |
+          pip install mypy types-PyYAML types-requests
+          mypy src/ \
+            --ignore-missing-imports \
+            --exclude "src/simulations" \
+            --exclude "src/processing/spark_ingest.py" \
+            --exclude "src/dashboard/app.py"
+
       - name: Lint (py_compile)
         run: |
           python -m py_compile \
@@ -34,6 +46,7 @@ jobs:
             src/api/model_loader.py \
             src/utils/manifest.py \
             src/utils/integrity.py \
+            src/utils/s3_client.py \
             src/simulations/traction_plate_with_hole.py \
             src/simulations/traction_plate_without_hole.py \
             src/simulations/traction_plate_moving_hole.py \
@@ -41,11 +54,16 @@ jobs:
             src/processing/build_features.py \
             src/training/train_advanced.py
 
-      - name: Run tests
-        # FEM simulations (generate/generate-*) are excluded from CI:
-        # they require FEniCS/Docker and run for hours.
+      - name: Run tests with coverage
+        # FEM simulations require FEniCS/Docker — excluded from CI.
         # test_smoke.py uses synthetic proxy data only (no FEniCS).
-        run: python -m unittest discover -s tests -t . -p "test_*.py" -v
+        run: |
+          python -m pytest tests/ \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=80 \
+            -v
 
       - name: Notify Slack — success
         if: success() && env.SLACK_WEBHOOK_URL != ''

@@ -176,9 +176,10 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
             continue
 
         artifact = joblib.load(model_file)
-        model       = artifact["model"]
+        model        = artifact["model"]
         feature_cols = artifact["feature_cols"]
-        encoder     = artifact.get("encoder")
+        encoder      = artifact.get("encoder")
+        normalize_by = artifact.get("normalize_by")  # e.g. "traction_pa" or "delta_theory"
 
         target_metrics: dict = {}
         for split in cfg.evaluation.splits:
@@ -193,11 +194,21 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
                 df = df.copy()
                 df[cat_present] = encoder.transform(df[cat_present].astype(str))
 
-            X = df[feature_cols].astype(float)
-            y_true      = df[target].to_numpy()
-            y_true_log  = np.log10(np.clip(y_true, _EPS, None))
-            y_pred_log  = model.predict(X)
-            target_metrics[split] = compute_metrics(y_true_log, y_pred_log, y_true)
+            X      = df[feature_cols].astype(float)
+            y_true = df[target].to_numpy()
+
+            # Apply the same normalisation used during training so that
+            # y_true_log and y_pred_log are in the same (normalised) space.
+            if normalize_by and normalize_by in df.columns:
+                norm_vals  = np.clip(df[normalize_by].to_numpy(), _EPS, None)
+                y_true_log = np.log10(np.clip(y_true / norm_vals, _EPS, None))
+                denorm     = norm_vals
+            else:
+                y_true_log = np.log10(np.clip(y_true, _EPS, None))
+                denorm     = None
+
+            y_pred_log = model.predict(X)
+            target_metrics[split] = compute_metrics(y_true_log, y_pred_log, y_true, denorm)
 
         all_metrics[target] = target_metrics
 

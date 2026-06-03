@@ -31,10 +31,13 @@ With MLflow:
 python -m src.training.train_advanced     --data-dir data/processed     --out-dir  data/models/advanced     --n-trials 60     --mlflow --mlflow-run-name lgbm-advanced
 """
 import argparse
+import logging
 import os
 import random
 import warnings
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 import joblib
 import lightgbm as lgb
@@ -114,23 +117,14 @@ def _load(path: Path) -> pd.DataFrame:
 
 def _download_splits_from_minio(local_dir: Path) -> None:
     """Télécharge train/val/test splits depuis le bucket MinIO features."""
-    import os
-    import boto3
+    from src.utils.s3_client import get_s3_client, BUCKET_FEATURES
 
-    endpoint   = os.getenv("MLFLOW_S3_ENDPOINT_URL", "http://localhost:9000")
-    access_key = os.getenv("AWS_ACCESS_KEY_ID",      "minioadmin")
-    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY",  "minioadmin")
-    bucket     = os.getenv("MINIO_BUCKET_FEATURES",  "features")
-
-    s3 = boto3.client("s3", endpoint_url=endpoint,
-                      aws_access_key_id=access_key,
-                      aws_secret_access_key=secret_key)
-
+    s3 = get_s3_client()
     local_dir.mkdir(parents=True, exist_ok=True)
-    print(f"[train] Download splits depuis s3://{bucket}/...")
+    logger.info("Download splits depuis s3://%s/...", BUCKET_FEATURES)
     for filename in ("train.parquet", "val.parquet", "test.parquet"):
-        s3.download_file(bucket, filename, str(local_dir / filename))
-        print(f"  ↓ {filename}")
+        s3.download_file(BUCKET_FEATURES, filename, str(local_dir / filename))
+        logger.info("  ↓ %s", filename)
 
 
 def _feature_columns(df: pd.DataFrame) -> list[str]:
@@ -219,7 +213,7 @@ def _build_optuna_objective(
             "n_estimators":      trial.suggest_int("n_estimators", 400, 2000, step=100),
             "learning_rate":     trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
             "num_leaves":        trial.suggest_int("num_leaves", 31, 255),
-            "max_depth":         trial.suggest_int("max_depth", 4, 12),
+            "max_depth":         trial.suggest_int("max_depth", 8, 16),
             "min_child_samples": trial.suggest_int("min_child_samples", 10, 100),
             "subsample":         trial.suggest_float("subsample", 0.6, 1.0),
             "colsample_bytree":  trial.suggest_float("colsample_bytree", 0.5, 1.0),
@@ -292,13 +286,22 @@ def _train_one_target(
         print(f"  Best CV RMSE(log): {study.best_value:.5f}")
         print(f"  Best params: {best_params}")
     else:
-        # Default parameters when Optuna is disabled
-        best_params = {
-            "n_estimators": 1000, "learning_rate": 0.05,
-            "num_leaves": 127,    "max_depth": 8,
-            "min_child_samples": 20, "subsample": 0.8,
-            "colsample_bytree": 0.8, "reg_alpha": 0.1, "reg_lambda": 1.0,
-        }
+        # Default parameters when Optuna is disabled — loaded from YAML config
+        import yaml as _yaml
+        _default_params_file = Path(
+            os.getenv("DEFAULT_PARAMS_PATH", "configs/default_hyperparameters.yaml")
+        )
+        if _default_params_file.exists():
+            with open(_default_params_file, encoding="utf-8") as _f:
+                best_params = _yaml.safe_load(_f)
+            print(f"  Loaded default params from {_default_params_file}")
+        else:
+            best_params = {
+                "n_estimators": 1000, "learning_rate": 0.05,
+                "num_leaves": 127,    "max_depth": 10,
+                "min_child_samples": 20, "subsample": 0.8,
+                "colsample_bytree": 0.8, "reg_alpha": 0.1, "reg_lambda": 1.0,
+            }
 
     # Final model on full training set
     final_params = {
@@ -342,6 +345,36 @@ def _print_top_features(model: lgb.LGBMRegressor, feature_cols: list[str],
     print(f"\n  Top {top_n} features for {target_name}:")
     for feat, val in imp.items():
         print(f"    {feat:30s}: {val:6.0f}")
+
+
+def _export_feature_importance(
+    model: lgb.LGBMRegressor,
+    feature_cols: list[str],
+    target_name: str,
+    out_dir: Path,
+) -> tuple[Path, Path]:
+    """Export feature importance (split and gain) to CSV files.
+
+    Returns (split_path, gain_path).
+    """
+    booster    = model.booster_
+    split_vals = booster.feature_importance(importance_type="split")
+    gain_vals  = booster.feature_importance(importance_type="gain")
+
+    split_df = pd.DataFrame(
+        {"feature": feature_cols, "importance": split_vals}
+    ).sort_values("importance", ascending=False)
+    gain_df = pd.DataFrame(
+        {"feature": feature_cols, "importance": gain_vals}
+    ).sort_values("importance", ascending=False)
+
+    split_path = out_dir / f"feature_importance_split_{target_name}.csv"
+    gain_path  = out_dir / f"feature_importance_gain_{target_name}.csv"
+    split_df.to_csv(split_path, index=False)
+    gain_df.to_csv(gain_path, index=False)
+
+    logger.info("Feature importance saved: %s, %s", split_path.name, gain_path.name)
+    return split_path, gain_path
 
 
 # Main training function
@@ -399,6 +432,8 @@ def train_advanced(
             "Run build_features before training."
         )
 
+    logger.info("Train: %d  Val: %d  Test: %d  Features: %d",
+                len(X_train), len(X_val), len(X_test), len(feature_cols))
     print(f"Train: {len(X_train):,}  Val: {len(X_val):,}  Test: {len(X_test):,}")
     print(f"Features: {len(feature_cols)}")
 
@@ -406,6 +441,7 @@ def train_advanced(
 
     all_metrics: dict[str, dict] = {}
     artifacts: dict[str, Path]   = {}
+    fi_paths:   list[Path]       = []  # feature importance CSVs (logged but not registered)
 
     # Train one model per target
     for target in TARGET_COLS:
@@ -435,6 +471,8 @@ def train_advanced(
             denorm_test=denorm_test,
         )
         _print_top_features(model, feature_cols, target)
+        split_p, gain_p = _export_feature_importance(model, feature_cols, target, out_dir)
+        fi_paths.extend([split_p, gain_p])
 
         all_metrics[target] = {"val": val_m, "test": test_m}
 
@@ -462,6 +500,7 @@ def train_advanced(
     metrics_df = pd.DataFrame(metrics_rows)
     metrics_path = out_dir / "advanced_metrics.csv"
     metrics_df.to_csv(metrics_path, index=False)
+    logger.info("Metrics saved: %s", metrics_path)
     print(f"\nMetrics saved: {metrics_path}")
 
     # MLflow logging
@@ -488,6 +527,8 @@ def train_advanced(
             for target, path in artifacts.items():
                 mlflow.log_artifact(str(path))
             mlflow.log_artifact(str(metrics_path))
+            for p in fi_paths:
+                mlflow.log_artifact(str(p))
             mlflow.set_tags({
                 "model_family":   "lightgbm",
                 "task":           "regression_log_transform",
@@ -506,6 +547,7 @@ def train_advanced(
                 except Exception as e:
                     print(f"  [warn] Model Registry non disponible: {e}")
 
+            logger.info("MLflow run logged: %s", run_id)
             print(f"MLflow run logged: {run_id}")
 
 

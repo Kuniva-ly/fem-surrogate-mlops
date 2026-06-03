@@ -26,4 +26,4 @@ EXPOSE 8000
 # Uvicorn: 1 worker for simplicity; scale via replica in docker-compose or k8s
 CMD ["uvicorn", "src.api.main:app", \
      "--host", "0.0.0.0", "--port", "8000", \
-     "--workers", "2", "--log-level", "info"]
+     "--workers", "1", "--log-level", "info"]

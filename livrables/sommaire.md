@@ -21,13 +21,11 @@ de plaques métalliques sous traction.
 
 | Notebook | Description | Lien |
 |----------|-------------|------|
-| `infrastructure_bloc1.ipynb` | Spark ETL, Data Lake MinIO, schéma Parquet | [../notebooks/infrastructure_bloc1.ipynb](../notebooks/infrastructure_bloc1.ipynb) |
-| `eda_bloc2.ipynb` | Analyse exploratoire, distributions, corrélations | [../notebooks/eda_bloc2.ipynb](../notebooks/eda_bloc2.ipynb) |
-| `ml_bloc3.ipynb` | LightGBM, clustering, analyse statistique | [../notebooks/ml_bloc3.ipynb](../notebooks/ml_bloc3.ipynb) |
-| `dl_bloc4.ipynb` | CNN scratch, MobileNetV2, régression image | [../notebooks/dl_bloc4.ipynb](../notebooks/dl_bloc4.ipynb) |
-| `industria_bloc5.ipynb` | FastAPI, Docker, MLflow, Grafana | [../notebooks/industria_bloc5.ipynb](../notebooks/industria_bloc5.ipynb) |
-| `fem_surrogate_final_pipeline.ipynb` | Pipeline complet de référence (EDA → features → train → eval) | [../notebooks/fem_surrogate_final_pipeline.ipynb](../notebooks/fem_surrogate_final_pipeline.ipynb) |
-| `train_model.ipynb` | Entraînement exploratoire du surrogate LightGBM | [../notebooks/train_model.ipynb](../notebooks/train_model.ipynb) |
+| `01_infrastructure_bloc1.ipynb` | Spark ETL, Data Lake MinIO, schéma Parquet | [../notebooks/01_infrastructure_bloc1.ipynb](../notebooks/01_infrastructure_bloc1.ipynb) |
+| `02_eda_bloc2.ipynb` | Analyse exploratoire, distributions, corrélations | [../notebooks/02_eda_bloc2.ipynb](../notebooks/02_eda_bloc2.ipynb) |
+| `03_ml_bloc3.ipynb` | LightGBM, clustering, analyse statistique | [../notebooks/03_ml_bloc3.ipynb](../notebooks/03_ml_bloc3.ipynb) |
+| `04_dl_bloc4.ipynb` | CNN scratch, MobileNetV2, régression image | [../notebooks/04_dl_bloc4.ipynb](../notebooks/04_dl_bloc4.ipynb) |
+| `05_industria_bloc5.ipynb` | FastAPI, Docker, MLflow, Grafana | [../notebooks/05_industria_bloc5.ipynb](../notebooks/05_industria_bloc5.ipynb) |
 
 ---
 

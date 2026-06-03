@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 
 from src.api.dependencies import require_auth
@@ -152,9 +152,14 @@ async def health() -> HealthResponse:
 @router.get("/version", response_model=VersionResponse)
 async def version(_: None = Depends(require_auth)) -> VersionResponse:
     bundle = get_bundle()
+    if bundle is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Model not loaded — check /health for details.",
+        )
     return VersionResponse(
         api_version=API_VERSION,
-        model_version=bundle.version if bundle else None,
+        model_version=bundle.version,
         model_name=os.environ.get("MODEL_NAME", "lgbm_surrogate"),
-        feature_count=bundle.feature_count if bundle else 0,
+        feature_count=bundle.feature_count,
     )

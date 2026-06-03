@@ -34,7 +34,14 @@ All commands read `configs/training.yaml` for their parameters.
 ```powershell
 python -m venv .venv
 .venv\Scripts\python -m pip install --upgrade pip
-.venv\Scripts\pip install pandas pyarrow lightgbm scikit-learn optuna joblib pyyaml numpy
+.venv\Scripts\pip install -r requirements/dev.txt
+# ou : pip install -e .[dev]   (pyproject.toml)
+```
+
+Configurer les credentials (obligatoire — aucune valeur par défaut en production) :
+
+```powershell
+cp .env.example .env   # puis éditer API_PASSWORD, MINIO_ROOT_PASSWORD, AWS_SECRET_ACCESS_KEY
 ```
 
 ---
@@ -116,15 +123,43 @@ Verifies the SHA-256 checksums of all files in the latest registered version.
 
 ---
 
-## Makefile shortcuts
+## Raccourcis `run.bat` (Windows)
 
 ```powershell
+# Pipeline complet en 1 commande
+.\run start              # Docker + MinIO + ETL Spark + features (tout en 1)
+.\run pipeline-local     # build-features + train + evaluate + verify (sans Docker)
+
+# Étapes individuelles
+.\run build-features     # feature engineering local
+.\run train-local        # entraînement sans MLflow ni MinIO
+.\run train              # entraînement avec MLflow + MinIO (Docker requis)
+.\run evaluate           # évaluation
+.\run verify-artifacts   # vérification SHA-256
+
+# Stack Docker
+.\run up-build           # build + démarrer
+.\run down               # arrêter
+.\run logs               # logs en direct
+.\run monitor            # surveillance API + alerte Slack
+
+# Qualité
+.\run test               # 64 tests unitaires
+.\run lint               # vérification syntaxe
+
+# Dev local
+.\run api                # FastAPI sur :8000
+.\run dashboard          # Streamlit sur :8501
+```
+
+## Makefile shortcuts (Linux / macOS)
+
+```bash
 make build-features    # feature engineering
 make train             # full training
 make evaluate          # evaluation
-make predict           # inference (example case)
 make verify-artifacts  # SHA-256 integrity check
-make test              # 61 unit tests
+make test              # 64 unit tests
 make lint              # syntax check
 ```
 
@@ -165,11 +200,13 @@ artifacts/models/lgbm_surrogate/
         lgbm_max_displacement_m.joblib
         lgbm_max_von_mises_pa.joblib
         advanced_metrics.csv
-        advanced_metrics.json     ← nested metrics by target/split
-        manifest.json             ← timestamp, git commit, dataset SHA-256, package versions
+        advanced_metrics.json                    ← nested metrics by target/split
+        feature_importance_split_<target>.csv    ← split-based importance
+        feature_importance_gain_<target>.csv     ← gain-based importance
+        manifest.json                            ← timestamp, git commit, dataset SHA-256, package versions
         checksums.sha256
         checksums.json
-    latest.txt                    ← points to the latest version
+    latest.txt                    ← points to the latest version (atomic write)
 ```
 
 ---
@@ -177,8 +214,9 @@ artifacts/models/lgbm_surrogate/
 ## Tests
 
 ```powershell
-.venv\Scripts\python -m unittest discover -s tests -p "test_*.py" -v
-# Ran 61 tests — OK
+.\run test
+# ou : .venv\Scripts\python -m pytest tests/ -v
+# Ran 64 tests — OK
 ```
 
 Coverage:
