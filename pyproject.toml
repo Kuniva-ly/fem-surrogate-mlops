@@ -71,6 +71,23 @@ exclude = [
     "src/dashboard/app.py",
 ]
 
+# ── Coverage ──────────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "src/simulations/*",
+    "src/processing/spark_ingest.py",
+    "src/dashboard/app.py",
+    "src/cli.py",
+    "src/utils/s3_client.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "if __name__ == \"__main__\":",
+    "pragma: no cover",
+]
+
 # ── Pytest ────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 testpaths = ["tests"]

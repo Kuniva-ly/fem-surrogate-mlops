@@ -8,3 +8,7 @@ ruff>=0.4
 plotly>=5.0
 scipy>=1.10
 tensorflow>=2.13
+# API testing
+fastapi>=0.111
+httpx>=0.25
+pydantic>=2.7

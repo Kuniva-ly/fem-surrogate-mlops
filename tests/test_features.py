@@ -16,8 +16,10 @@ import pytest
 from src.processing.build_features import (
     MESH_COLS,
     TARGET_COLS,
+    build_features,
     engineer_features,
     _feature_columns,
+    _read_raw,
     _split,
 )
 
@@ -223,3 +225,90 @@ def test_invalid_ratios_raise(df_split):
 def test_invalid_strategy_raises(df_split):
     with pytest.raises(ValueError):
         _split(df_split, 0.7, 0.15, seed=42, strategy="unknown")
+
+
+def test_random_strategy_split(df_split):
+    train, val, test = _split(df_split, 0.7, 0.15, seed=42, strategy="random")
+    assert len(train) + len(val) + len(test) == len(df_split)
+    assert len(train) > 0 and len(val) > 0 and len(test) > 0
+
+
+def test_split_missing_simulation_id_raises(df_split):
+    bad = df_split.drop(columns=["simulation_id"])
+    with pytest.raises(ValueError, match="simulation_id"):
+        _split(bad, 0.7, 0.15, seed=42)
+
+
+def test_split_train_ratio_not_in_range(df_split):
+    with pytest.raises(ValueError, match="train_ratio"):
+        _split(df_split, 1.1, 0.15, seed=42)
+
+
+def test_split_val_ratio_negative(df_split):
+    with pytest.raises(ValueError, match="val_ratio"):
+        _split(df_split, 0.7, -0.1, seed=42)
+
+
+# ── _read_raw ─────────────────────────────────────────────────────────────────
+
+def test_read_raw_no_parquet_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        _read_raw(tmp_path)
+
+
+def test_read_raw_reads_parquet(tmp_path):
+    df = _make_df(10)
+    df.to_parquet(tmp_path / "data.parquet", index=False)
+    result = _read_raw(tmp_path)
+    assert len(result) == 10
+
+
+# ── build_features ────────────────────────────────────────────────────────────
+
+def _write_raw(input_dir, n: int = 200, geometry: str = "with_hole"):
+    rows = [_make_row(geometry_type=geometry) for _ in range(n)]
+    for i, r in enumerate(rows):
+        r["simulation_id"] = f"sim-{i:06d}"
+    pd.DataFrame(rows).to_parquet(input_dir / "raw.parquet", index=False)
+
+
+def test_build_features_creates_split_files(tmp_path):
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _write_raw(raw_dir)
+    out_dir = tmp_path / "processed"
+    build_features(raw_dir, out_dir)
+    assert (out_dir / "train.parquet").exists()
+    assert (out_dir / "val.parquet").exists()
+    assert (out_dir / "test.parquet").exists()
+    assert (out_dir / "feature_columns.txt").exists()
+
+
+def test_build_features_random_strategy(tmp_path):
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _write_raw(raw_dir)
+    out_dir = tmp_path / "out"
+    build_features(raw_dir, out_dir, split_strategy="random", seed=0)
+    assert (out_dir / "train.parquet").exists()
+
+
+def test_build_features_separate_features_dir(tmp_path):
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _write_raw(raw_dir)
+    out_dir = tmp_path / "splits"
+    feat_dir = tmp_path / "features"
+    build_features(raw_dir, out_dir, features_out_dir=feat_dir)
+    assert (feat_dir / "features.parquet").exists()
+    assert (feat_dir / "feature_columns.txt").exists()
+
+
+def test_build_features_feature_columns_nonempty(tmp_path):
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _write_raw(raw_dir)
+    out_dir = tmp_path / "out"
+    build_features(raw_dir, out_dir)
+    cols = (out_dir / "feature_columns.txt").read_text().splitlines()
+    assert len(cols) > 0
