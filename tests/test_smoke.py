@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.processing.build_features import build_features, engineer_features, _feature_columns
+from src.processing.build_features import build_features, engineer_features
 from src.training.train_advanced import train_advanced, CAT_COLS
 
 

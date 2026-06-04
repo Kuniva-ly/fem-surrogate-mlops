@@ -136,7 +136,6 @@ def _download_from_mlflow(tracking_uri: str) -> Path:
     Retries up to MLFLOW_DOWNLOAD_RETRIES times (default 3) with exponential
     backoff. Timeout is set via MLFLOW_HTTP_REQUEST_TIMEOUT (default 30 s).
     """
-    import mlflow
     from mlflow.tracking import MlflowClient
 
     max_retries = int(os.environ.get("MLFLOW_DOWNLOAD_RETRIES", "3"))

@@ -1,6 +1,5 @@
 """Tests for artifact integrity (src/utils/integrity.py)."""
 import hashlib
-from pathlib import Path
 
 import pytest
 

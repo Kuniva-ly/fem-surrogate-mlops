@@ -37,8 +37,6 @@ import random
 import warnings
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
 import joblib
 import lightgbm as lgb
 import numpy as np
@@ -52,6 +50,8 @@ try:
     import mlflow
 except ImportError:
     mlflow = None
+
+logger = logging.getLogger(__name__)
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 warnings.filterwarnings("ignore", category=UserWarning, module="lightgbm")
