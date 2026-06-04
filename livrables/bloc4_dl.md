@@ -144,8 +144,8 @@ Architecture : même backbone CNN scratch, tête `Dense(2, linear)` (multi-outpu
 |--------|--------|---------|-----------|------|
 | CNN Regression (pixels) | max_von_mises_pa | 0.279 | 0.322 | 83.2% |
 | CNN Regression (pixels) | max_displacement_m | 0.083 | 0.537 | 170.2% |
-| **LightGBM (42 features)** | max_von_mises_pa | **0.983** | **0.028** | **2.8%** |
-| **LightGBM (42 features)** | max_displacement_m | **0.926** | **0.042** | **4.0%** |
+| **LightGBM (42 features)** | max_von_mises_pa | **0.9829** | **0.0282** | **2.80%** |
+| **LightGBM (42 features)** | max_displacement_m | **0.9258** | **0.0420** | **3.96%** |
 
 > Le CNN prédit depuis les couleurs absolues (normalisation globale). Sa faible
 > performance sur le déplacement s'explique par l'ambiguïté : deux images identiques

@@ -55,8 +55,8 @@ au lieu de plusieurs minutes de simulation numérique.
 
 | Target | R²(log) | RMSE(log) | MAPE | R² CV moyen |
 |--------|---------|-----------|------|-------------|
-| max_displacement_m | **0.9208** | 0.0434 | **4.05%** | 0.8823 ± 0.0206 |
-| max_von_mises_pa | **0.9824** | 0.0286 | **3.03%** | 0.9784 ± 0.0004 |
+| max_displacement_m | **0.9258** | 0.0420 | **3.96%** | 0.8823 ± 0.0206 |
+| max_von_mises_pa | **0.9829** | 0.0282 | **2.80%** | 0.9784 ± 0.0004 |
 
 ### Comparaison des modèles (test set)
 
@@ -64,14 +64,14 @@ au lieu de plusieurs minutes de simulation numérique.
 |--------|----------------|-------------------|-------------|----------------|
 | Moyenne (baseline) | 0.00 | — | 0.00 | — |
 | RandomForest | 0.8508 | 6.00% | 0.9561 | 4.49% |
-| **LightGBM** | **0.9208** | **4.05%** | **0.9824** | **3.03%** |
+| **LightGBM** | **0.9258** | **3.96%** | **0.9829** | **2.80%** |
 
 ### Contrôle du sur-apprentissage
 
 | Target | R² train | R² val | R² test | Diagnostic |
 |--------|---------|--------|---------|------------|
-| max_displacement_m | 0.9686 | 0.8880 | 0.9208 | OK (gap train-test < 0.05) |
-| max_von_mises_pa | 0.9951 | 0.9802 | 0.9824 | OK (gap train-test < 0.05) |
+| max_displacement_m | 0.9686 | 0.8880 | 0.9258 | OK (gap train-test < 0.05) |
+| max_von_mises_pa | 0.9951 | 0.9802 | 0.9829 | OK (gap train-test < 0.05) |
 
 ---
 
@@ -95,7 +95,7 @@ au lieu de plusieurs minutes de simulation numérique.
 - **Test de Kolmogorov-Smirnov** : résidus **non-normaux** (p-value = 0.0000)
   → rejet attendu sur 7 700 points (KS très sensible) ; résidus quasi-gaussiens visuellement
 - μ résidus ≈ 0 (pas de biais systématique)
-- σ résidus : 0.0434 (displacement) / 0.0286 (von Mises)
+- σ résidus : 0.0420 (displacement) / 0.0282 (von Mises)
 - **IC 95%** basé sur ±1.96 × σ_résidus (voir notebook pour couverture réelle)
 - **Test de sur-apprentissage** : gap train-test < 0.05 ✓
 

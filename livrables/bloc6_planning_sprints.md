@@ -101,7 +101,7 @@ au suivant.
 | CNN Regression + comparaison LightGBM | 2 | ✅ Done |
 | Notebook `04_dl_bloc4.ipynb` | 1 | ✅ Done |
 
-**Critère de validation :** Accuracy classification > 90% (réalisé : 97.9%)
+**Critère de validation :** Accuracy classification > 90% (réalisé : 98.5%)
 
 ---
 
@@ -131,7 +131,7 @@ Fév 2026                 Mar 2026            Avr 2026       Mai 2026        Jui
     │                       │                    │              │               │
     ▼                       ▼                    ▼              ▼               ▼
 [S1 Data Lake]         [S2 EDA]           [S3 ML ✓]      [S4 DL ✓]      [S5 Prod ✓]
-61 550 sims            Corrélations       R²=0.99         Acc=97.9%       API<100ms
+61 550 sims            Corrélations       R²=0.99         Acc=98.5%       API<100ms
 MinIO + Spark          Visualisations     LightGBM        CNN+MobileNet   Docker×7
 ```
 

@@ -53,9 +53,9 @@ Meilleur run (60 essais Optuna) :
 
 | Métrique | Valeur |
 |----------|--------|
-| R² déplacement | **0.9803** |
-| R² Von Mises | **0.8712** |
-| RMSE déplacement (log) | 0.000012 |
+| R² déplacement (log) | **0.9258** |
+| R² Von Mises (log) | **0.9829** |
+| RMSE déplacement (log) | 0.0420 |
 
 ---
 

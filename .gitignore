@@ -24,7 +24,9 @@ env/
 /data/postgres/
 /data/unstructured/
 *.parquet
-
+*.pptx
+*.docx
+*.xlsx
 # ── ML artifacts — managed by registry, not by git ───────────────────────────
 *.joblib
 *.pkl

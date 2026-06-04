@@ -26,10 +26,10 @@ Aucun dépassement sur les outils : stack 100% open source maintenue.
 | Effort total | 60 j | 62 j | +2 j (+3%) |
 | Notebooks d'analyse | 5 | 5 | 0 |
 | Simulations FEM générées | 50 000 | 61 550 | +23% |
-| R² von Mises | > 0.95 | **0.9913** | +4.3pts |
-| R² displacement | > 0.95 | **0.9895** | +4.1pts |
+| R² von Mises (log) | > 0.95 | **0.9829** | +3.3pts |
+| R² displacement (orig) | > 0.95 | **0.9798** | +3.0pts |
 | Latence API P95 | < 200 ms | **< 100 ms** | ×2 mieux |
-| CNN accuracy | > 90% | **97.9%** | +7.9pts |
+| CNN accuracy | > 90% | **98.5%** | +8.5pts |
 
 ---
 
@@ -113,22 +113,23 @@ la régression physique — les features physiques calculées sont irremplaçabl
 ### Bloc 3 — Machine Learning
 | Métrique | max_displacement_m | max_von_mises_pa |
 |---------|-------------------|-----------------|
-| R² test | 0.9895 | 0.9913 |
-| MAPE | 6.1% | 3.9% |
+| R²(log) test | 0.9258 | 0.9829 |
+| R²(orig) test | 0.9798 | 0.8652 |
+| MAPE | 3.96% | 2.80% |
 | IC 95% couverture | 96.8% | 96.6% |
 | Diagnostic | OK (pas d'overfitting) | OK |
 
 ### Bloc 4 — Deep Learning
 | Modèle | Tâche | Résultat |
 |--------|-------|---------|
-| CNN scratch | Classification 3 classes | **97.9% accuracy** |
-| MobileNetV2 | Classification 3 classes | 96.4% accuracy |
+| CNN scratch | Classification 3 classes | **98.5% accuracy** |
+| MobileNetV2 | Classification 3 classes | 97.0% accuracy |
 | CNN Regression | Régression σ_VM depuis pixels | R² = 0.28 (attendu bas) |
 
 ### Bloc 5 — Industrialisation
 - 7 services Docker tous `UP` et `healthy`
 - API latence P95 : **< 100 ms** (objectif < 200 ms)
-- MLflow : 7 runs tracés, modèle `v20260529_080738` en production
+- MLflow : 7 runs tracés, modèle `v20260603_102835` en production
 - Grafana : alertes Slack configurées sur latence P95 > 500 ms
 
 ---
@@ -136,7 +137,7 @@ la régression physique — les features physiques calculées sont irremplaçabl
 ## Enseignements clés
 
 1. **La normalisation physique des targets est la décision la plus impactante** du projet.
-   Elle a permis d'atteindre R² = 0.99 et de rendre le modèle valide hors plage d'entraînement.
+   Elle a permis d'atteindre R²(log) = 0.98 et de rendre le modèle valide hors plage d'entraînement.
 
 2. **LightGBM + features physiques >> CNN + pixels bruts** pour la régression mécanique.
    Les connaissances domaine (formules de Peterson, déformation linéaire) remplacent

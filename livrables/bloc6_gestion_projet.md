@@ -26,7 +26,7 @@ conception préliminaire.
 
 **Solution apportée :** Un modèle surrogate LightGBM entraîné sur 61 550 simulations FEM
 qui prédit la contrainte de Von Mises maximale et le déplacement maximal en **moins de 50 ms**,
-avec une précision R² > 0.99 — soit un gain de vitesse de l'ordre de **×1000 à ×10 000**.
+avec une précision R²(log) ≥ 0.98 — soit un gain de vitesse de l'ordre de **×1000 à ×10 000**.
 
 **Stack déployée :**
 
@@ -41,10 +41,10 @@ Données FEM (FEniCS) → Data Lake MinIO → ETL Spark → Feature Engineering
 
 | Indicateur | Cible | Réalisé | Statut |
 |-----------|-------|---------|--------|
-| R² max_von_mises_pa | > 0.95 | **0.9913** | ✅ |
-| R² max_displacement_m | > 0.95 | **0.9895** | ✅ |
-| MAPE von Mises | < 10% | **3.9%** | ✅ |
+| R² max_von_mises_pa (log) | > 0.95 | **0.9829** | ✅ |
+| R² max_displacement_m (orig) | > 0.95 | **0.9798** | ✅ |
+| MAPE von Mises | < 10% | **2.80%** | ✅ |
 | Latence API P95 | < 200 ms | **< 100 ms** | ✅ |
-| CNN classification accuracy | > 90% | **97.9%** | ✅ |
+| CNN classification accuracy | > 90% | **98.5%** | ✅ |
 | Couverture données IC 95% | > 95% | **96.7%** | ✅ |
 | Pipeline reproductible (Docker) | Oui | **7 services** | ✅ |

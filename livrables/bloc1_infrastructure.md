@@ -26,7 +26,7 @@ Mettre en place un Data Lake scalable pour stocker et traiter les simulations FE
 ## Données
 
 - **Source :** simulations Python (FEniCS-like) générées localement
-- **Volume :** 51 550 simulations, 3 géométries (`with_hole`, `without_hole`, `with_hole_moving`)
+- **Volume :** 61 550 simulations, 3 géométries (`with_hole`, `without_hole`, `with_hole_moving`)
 - **Format :** Parquet partitionné par source et type de géométrie
 - **Raw Lake :** 37 fichiers — 8.3 MB (bucket `raw-simulations`)
 
