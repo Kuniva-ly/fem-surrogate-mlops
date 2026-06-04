@@ -1,8 +1,6 @@
 """Tests for src/utils/manifest.py."""
 import json
 
-import pytest
-
 from src.utils.manifest import (
     _TRACKED_PACKAGES,
     _git_commit,

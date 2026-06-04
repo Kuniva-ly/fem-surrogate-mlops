@@ -3,7 +3,6 @@ import pandas as pd
 import pytest
 
 from src.processing.validate import (
-    REQUIRED_COLUMNS,
     _assert_ranges,
     _coerce_optional_columns,
     validate_folder,
