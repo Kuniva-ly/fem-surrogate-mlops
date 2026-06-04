@@ -161,10 +161,11 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
         model_dir = Path(args.model_dir)
     else:
         registry = ModelRegistry(cfg.artifacts.registry_dir, cfg.artifacts.model_name)
-        model_dir = registry.latest_path()
-        if model_dir is None:
+        _path = registry.latest_path()
+        if _path is None:
             print("ERROR: No registered model found. Run 'train' first.", file=sys.stderr)
             return 1
+        model_dir = _path
 
     data_dir = Path(args.data_dir) if args.data_dir else cfg.data.processed_dir
 
@@ -240,13 +241,14 @@ def _cmd_predict(args: argparse.Namespace) -> int:
         model_dir = Path(args.model_dir)
     else:
         registry = ModelRegistry(cfg.artifacts.registry_dir, cfg.artifacts.model_name)
-        model_dir = registry.latest_path()
-        if model_dir is None:
+        _path = registry.latest_path()
+        if _path is None:
             print(
                 "ERROR: No registered model found. Pass --model-dir or run 'train'.",
                 file=sys.stderr,
             )
             return 1
+        model_dir = _path
 
     # Load the input case
     if args.case_json:

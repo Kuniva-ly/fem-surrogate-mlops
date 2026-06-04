@@ -228,6 +228,7 @@ def run_pipeline(
         wh_path  = f"s3a://{_BUCKET_PROCESSED}/warehouse.parquet"
         print(f"[pipeline] Mode MinIO\n  raw : {raw_path}\n  wh  : {wh_path}\n")
     else:
+        assert wh_dir is not None, "wh_dir is required in local mode"
         raw_path = str(raw_dir)
         wh_path  = str(wh_dir / "warehouse.parquet")
         print(f"[pipeline] Mode local\n  raw : {raw_path}\n  wh  : {wh_path}\n")

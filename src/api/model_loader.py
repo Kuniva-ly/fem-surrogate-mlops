@@ -11,7 +11,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import joblib
 
@@ -24,9 +24,9 @@ _EPS = 1e-12
 @dataclass
 class LoadedModel:
     target: str
-    model: object
+    model: Any
     feature_cols: list[str]
-    encoder: object        # OrdinalEncoder or None
+    encoder: Any
     normalize_by: str | None = None  # feature column used to normalise the log target at training
 
 

@@ -36,6 +36,7 @@ import os
 import random
 import warnings
 from pathlib import Path
+from typing import Callable
 
 import joblib
 import lightgbm as lgb
@@ -49,7 +50,7 @@ from sklearn.preprocessing import OrdinalEncoder
 try:
     import mlflow
 except ImportError:
-    mlflow = None
+    mlflow = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +205,7 @@ def _build_optuna_objective(
     cv: KFold,
     mono_constraints: list[int],
     random_state: int = 42,
-) -> callable:
+) -> Callable[[optuna.Trial], float]:
     def objective(trial: optuna.Trial) -> float:
         params = {
             "objective":         "regression",
@@ -227,7 +228,7 @@ def _build_optuna_objective(
         for tr_idx, vl_idx in cv.split(X_train):
             X_tr, X_vl = X_train.iloc[tr_idx], X_train.iloc[vl_idx]
             y_tr, y_vl = y_train[tr_idx],       y_train[vl_idx]
-            model = lgb.LGBMRegressor(**params)
+            model = lgb.LGBMRegressor(**params)  # type: ignore[arg-type]
             model.fit(
                 X_tr, y_tr,
                 eval_set=[(X_vl, y_vl)],

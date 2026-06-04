@@ -119,6 +119,8 @@ async def predict(
     Returns predicted ``max_displacement_m`` and ``max_von_mises_pa``.
     """
     bundle = get_bundle()
+    if bundle is None:
+        raise HTTPException(status_code=503, detail="Model not loaded. Check /health for details.")
     t0 = time.perf_counter()
     try:
         preds = _infer(request)
